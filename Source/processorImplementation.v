@@ -1,14 +1,15 @@
 // basic sizes of things
-`define WORD	 [15:0]
-`define Opcode	 [15:12]
-`define Immed	 [11:0]
-`define OP		 [7:0]
-`define PRE	 	 [3:0]
-`define REGSIZE  [511:0] 		// 256 for each PID
-`define REGNUM	 [7:0]
-`define MEMSIZE  [65535:0]
-`define PID		 [1:0]
-`define MEMDELAY 4
+`define WORD	  [15:0]
+`define BYTE	  [7:0]
+`define Opcode	  [15:12]
+`define Immed	  [11:0]
+`define OP	  [7:0]
+`define PRE	  [3:0]
+`define REGSIZE   [511:0] 		// 256 for each PID
+`define REGNUM	  [7:0]
+`define MEMSIZE   [65535:0]
+`define PID	  [1:0]
+`define MEMDELAY  4
 `define CACHESIZE [7:0]
 
 // pid-dependent things
@@ -23,7 +24,7 @@
 `define	TORF0	 torf[`PID0]    // tORf register  for the current process/thread
 `define	TORF1	 torf[`PID1]    // tORf register  for the other process/thread
 `define	SP0	 sp[`PID0]	// stack pointer to registers of current process/thread
-`define	SP1	 sp[`PID1]	// stack pointer to registers of current process/thread
+`define	SP1	 sp[`PID1]	// stack pointer to registers of other process/thread
 `define HALT0	 halts[`PID0]	// halt status of current thread
 `define	HALT1	 halts[`PID1]	// halt status of other thread
 
@@ -79,7 +80,15 @@ wire teststall, retstall, writestall;
 reg `PID torf, preset, halts;		// [1:0] torf, preset, halts
 reg `PRE pre `PID;			// [3:0] pre [1:0]
 reg pid;
+	
+// Cache objects
 reg `WORD cache `CACHESIZE;		// [15:0] cache [7:0]
+reg mfc;
+reg `WORD rdata;			// [15:0] rdata
+wire `WORD addr, wdata;			// [15:0] addr, wdata
+wire rnotw, strobe, clk;
+reg `BYTE pend;				// [7:0] pend
+reg `WORD raddr;			// [15:0] raddr
 
 // reset halt input from test bench,
 // both thread's reg stack pointers, 
@@ -115,11 +124,6 @@ assign retstall = (s1op == `OPRet);
  */
 assign ir = m[`PC0]; // get instruction for current thread/process
 assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
-
-// determine which thread is active using pid register
-always@(posedge clk)begin
-	  pid <= (clk % 2);
-end
 																	
 // Instruction fetch from INSTRUCTION MEMORY (s0)
 always @(posedge clk) begin 
@@ -213,6 +217,7 @@ always @(posedge clk) begin
 end
 
 // Instruction decode (s1)
+// Changes the stack pointer for the other thread
 always @(posedge clk) begin
   case (s0op)
     `OPAdd,
