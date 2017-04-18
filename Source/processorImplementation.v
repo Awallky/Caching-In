@@ -96,7 +96,7 @@ always @(posedge reset) begin
   `HALT0 <= 0;
   `HALT1 <= 0;
   pid <= clk;
-//  $readmemh0(r);
+  $readmemh0(r);
 //  $readmemh1(m);
 end
 
@@ -222,7 +222,7 @@ always @(posedge clk) begin
     `OPOr,
     `OPXor,
     `OPStore:
-      begin s1d <= `SP1-1; s1s <= `SP1; `SP1 <= `SP1-1; end // since sp of other thread is incremented, set next stage to sp - 1 
+      begin s1d <= `SP1-1; s1s <= `SP1; `SP1 <= `SP1-1; end 
     `OPTest:
       begin s1d <= `NOREG; s1s <= `SP1; `SP1 <= `SP1-1; end
     `OPDup:
@@ -248,7 +248,7 @@ always @(posedge clk) begin
   s1immed <= s0immed;
 end
 
-// Register read (s3)
+	// Register read (s2)
 always @(posedge clk) begin
   s2dv <= ((s1d == `NOREG) ? 0 : r[{`PID0, s1d}]);
   s2sv <= ((s1s == `NOREG) ? 0 : r[{`PID0, s1s}]);
@@ -257,7 +257,7 @@ always @(posedge clk) begin
   s2immed <= s1immed;
 end
 
-// ALU or DATA MEMORY access and write (s4)
+	// ALU or DATA MEMORY access and write (s3)
 always @(posedge clk) begin
   case (s2op)
     `OPAdd: begin r[{`PID1, s2d}] <= s2dv + s2sv; end
@@ -291,7 +291,6 @@ reg `WORD m `MEMSIZE;
 
 initial begin
   pend <= 0;
-  $readmemh0(r);
   $readmemh1(m);
 end
 
