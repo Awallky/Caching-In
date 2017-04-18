@@ -129,6 +129,10 @@ module processor(halt, reset, clk);
 	 */
 	assign ir = m[`PC0]; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
+	
+	always@(posedge clk) begin
+		pid = (clk % 2);
+	end
 
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
 	always @(posedge clk) begin 
