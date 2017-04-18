@@ -61,6 +61,7 @@
 
 `define NOREG   255
 
+/* ***************************************** PROCESSOR IMPLEMENTATION ************************************ */
 module processor(halt, reset, clk);
 	output halt;
 	input reset, clk;
@@ -86,7 +87,7 @@ module processor(halt, reset, clk);
 	reg mfc;
 	reg `WORD rdata;			// [15:0] rdata
 	wire `WORD addr, wdata;			// [15:0] addr, wdata
-	wire rnotw, strobe, clk;
+	wire rnotw, strobe;
 	reg `BYTE pend;				// [7:0] pend
 	reg `WORD raddr;			// [15:0] raddr
 
@@ -94,6 +95,11 @@ module processor(halt, reset, clk);
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
+	
+	initial begin
+		strobe = 0;
+		rnotw = 0;
+	end
 
 	// reset halt input from test bench,
 	// both thread's reg stack pointers, 
@@ -262,7 +268,7 @@ module processor(halt, reset, clk);
 	  s1immed <= s0immed;
 	end
 
-		// Register read (s2)
+	// Register read (s2)
 	always @(posedge clk) begin
 	  s2dv <= ((s1d == `NOREG) ? 0 : r[{`PID0, s1d}]);
 	  s2sv <= ((s1s == `NOREG) ? 0 : r[{`PID0, s1s}]);
@@ -271,7 +277,7 @@ module processor(halt, reset, clk);
 	  s2immed <= s1immed;
 	end
 
-		// ALU or DATA MEMORY access and write (s3)
+	// ALU or DATA MEMORY access and write (s3)
 	always @(posedge clk) begin
 	  case (s2op)
 	    `OPAdd: begin r[{`PID1, s2d}] <= s2dv + s2sv; end
@@ -291,9 +297,9 @@ module processor(halt, reset, clk);
 	  endcase
 	end
 endmodule
+/* ***************************************** END OF PROCESSOR IMPLEMENTATION ************************************ */
 
-
-/* ******************************* NEEDS IMPLEMENTATION ************************** */
+/* ***************************************** MEMORY IMPLEMENTATION ************************************ */
 module slowmem(mfc, rdata, addr, wdata, rnotw, strobe, clk);
 	output reg mfc;
 	output reg `WORD rdata;
@@ -343,7 +349,7 @@ module slowmem(mfc, rdata, addr, wdata, rnotw, strobe, clk);
 	end
 endmodule
 
-/* ******************************* END OF MEMORY IMPLEMENTATION ************************** */
+/* ***************************************** END OF MEMORY IMPLEMENTATION ************************************ */
 
 
 module testbench;
