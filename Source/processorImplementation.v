@@ -12,18 +12,18 @@
 `define CACHESIZE [7:0]
 
 // pid-dependent things
-`define	PID0	(pid) 			// current process ID, i.e. current thread
-`define	PID1	(!pid) 			// other process ID, i.e. other thread
-`define	PC0		 pc[`PID0] 		// Program counter of the current process/thread
-`define	PC1		 pc[`PID1] 		// Program Counter for the other thread/process
+`define	PID0	(pid) 		// current process ID, i.e. current thread
+`define	PID1	(!pid) 		// other process ID, i.e. other thread
+`define	PC0	 pc[`PID0] 	// Program counter of the current process/thread
+`define	PC1	 pc[`PID1] 	// Program Counter for the other thread/process
 `define	PRESET0	 preset[`PID0]  // Indicates whether the pre register of current thread has been set
 `define	PRESET1	 preset[`PID1]  // Indicates whether the pre register of other thread has been set
 `define	PRE0	 pre[`PID0] 	// Pre register for the current thread
-`define	PRE1	 pre[`PID1]		// Pre register for the other thread
+`define	PRE1	 pre[`PID1]	// Pre register for the other thread
 `define	TORF0	 torf[`PID0]    // tORf register  for the current process/thread
 `define	TORF1	 torf[`PID1]    // tORf register  for the other process/thread
-`define	SP0		 sp[`PID0]		// stack pointer to registers of current process/thread
-`define	SP1		 sp[`PID1]		// stack pointer to registers of current process/thread
+`define	SP0	 sp[`PID0]	// stack pointer to registers of current process/thread
+`define	SP1	 sp[`PID1]	// stack pointer to registers of current process/thread
 `define HALT0	 halts[`PID0]	// halt status of current thread
 `define	HALT1	 halts[`PID1]	// halt status of other thread
 
@@ -64,22 +64,22 @@ module processor(halt, reset, clk);
 output halt;
 input reset, clk;
 
-reg `WORD r `REGSIZE; 					// [15:0] r [511:0]
-reg `WORD m `MEMSIZE;					// [15:0] m [65535:0]
-reg `WORD pc `PID;						// [15:0] pc [1:0]
-wire `OP op;							// [7:0] op
-reg `OP s0op, s1op, s2op;				// [7:0] s0op, s1op, s2op
-reg `REGNUM sp `PID;					// [7:0] sp [1:0]
+reg `WORD r `REGSIZE; 			// [15:0] r [511:0]
+reg `WORD m `MEMSIZE;			// [15:0] m [65535:0]
+reg `WORD pc `PID;			// [15:0] pc [1:0]
+wire `OP op;				// [7:0] op
+reg `OP s0op, s1op, s2op;		// [7:0] s0op, s1op, s2op
+reg `REGNUM sp `PID;			// [7:0] sp [1:0]
 reg `REGNUM s0d, s1d, s2d, s0s, s1s;	// [7:0] s0d, s1d, s2d, s0s, s1s
 reg `WORD s0immed, s1immed, s2immed;	// [15:0] s0immed, s1immed, s2immed
-reg `WORD s1sv, s1dv, s2sv, s2dv;		// [15:0] s1sv, s1dv, s2sv, s2dv
-wire `WORD ir;							// [15:0] ir
-reg `WORD immed;						// [15:0] immed
+reg `WORD s1sv, s1dv, s2sv, s2dv;	// [15:0] s1sv, s1dv, s2sv, s2dv
+wire `WORD ir;				// [15:0] ir
+reg `WORD immed;			// [15:0] immed
 wire teststall, retstall, writestall;
-reg `PID torf, preset, halts;			// [1:0] torf, preset, halts
-reg `PRE pre `PID;						// [3:0] pre [1:0]
+reg `PID torf, preset, halts;		// [1:0] torf, preset, halts
+reg `PRE pre `PID;			// [3:0] pre [1:0]
 reg pid;
-reg `WORD cache `CACHESIZE;				// [15:0] cache [7:0]
+reg `WORD cache `CACHESIZE;		// [15:0] cache [7:0]
 
 // reset halt input from test bench,
 // both thread's reg stack pointers, 
@@ -134,20 +134,20 @@ always @(posedge clk) begin
     `OPJump,
     `OPJumpF,
     `OPJumpT: begin
-      if (`PRESET0) begin 			// if preset of current thread has been set
+	    if (`PRESET0) begin 	    // if preset of current thread has been set
 		immed = {`PRE0, ir `Immed}; // use the pre register and immed values for immed register
 		`PRESET0 <= 0;
       end 
-	  else begin 					// Otherwise Take top bits of pc
+	  else begin 			    // Otherwise Take top bits of pc
 		immed <= {`PC0[14:12], ir `Immed};
       end
     end
     `OPPush: begin
-      if (`PRESET0) begin 			// if preset of current thread has been set
-		immed = {`PRE0, ir `Immed};	// use the pre register and immed values for immed register
+	    if (`PRESET0) begin 	    // if preset of current thread has been set
+		immed = {`PRE0, ir `Immed}; // use the pre register and immed values for immed register
 		`PRESET0 <= 0;
       end 
-	  else begin					// Sign extend
+	  else begin			    // Sign extend
 		immed = {{4{ir[11]}}, ir `Immed};
       end
     end
@@ -167,11 +167,11 @@ always @(posedge clk) begin
       s0op <= `OPCall;
     end
     `OPJump: begin
-      `PC0 <= immed;							// get the address 
+      `PC0 <= immed;					// get the address 
       s0op <= `OPNOP;
     end
     `OPJumpF: begin
-      if (teststall == 0) begin 	 			// if a test is being made, see if the branch is taken
+      if (teststall == 0) begin 	 		// if a test is being made, see if the branch is taken
 		`PC0 <= (`TORF0 ? (`PC0 + 1) : immed);	// if so, get the address; else, get the next instruction
       end 
 	  else begin
@@ -180,7 +180,7 @@ always @(posedge clk) begin
       s0op <= `OPNOP;
     end
     `OPJumpT: begin
-      if (teststall == 0) begin 	 			// if a test is being made, see if the branch is taken
+      if (teststall == 0) begin 	 		// if a test is being made, see if the branch is taken
 		`PC0 <= (`TORF0 ? immed : (`PC0 + 1));	// if so, get the address; else, get the next instruction
       end 
 	  else begin
@@ -189,10 +189,10 @@ always @(posedge clk) begin
       s0op <= `OPNOP;
     end
     `OPRet: begin 
-      if (retstall) begin						// checks if there is a pipe bubble due to a return opcode
-		s0op <= `OPNOP;							// if s1 is doing a return, s0 must wait 
+      if (retstall) begin				// checks if there is a pipe bubble due to a return opcode
+		s0op <= `OPNOP;				// if s1 is doing a return, s0 must wait 
       end 
-	  else if (s2op == `OPRet) begin			// if s2 is doing a return, s0 must wait 
+	  else if (s2op == `OPRet) begin		// if s2 is doing a return, s0 must wait 
 		s0op <= `OPNOP;
 		`PC0 <= s1sv;
       end 
@@ -200,7 +200,7 @@ always @(posedge clk) begin
 		s0op <= op;
       end
     end
-    `OPSys: begin 								// basically idle this thread
+    `OPSys: begin 					// basically idle this thread
       s0op <= `OPNOP;
       HALT0 <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
     end
@@ -330,7 +330,7 @@ always @(posedge clk) begin
 end
 endmodule
 
-/* ******************************* END OF IMPLEMENTATION ************************** */
+/* ******************************* END OF MEMORY IMPLEMENTATION ************************** */
 
 
 module testbench;
