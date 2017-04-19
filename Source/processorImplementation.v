@@ -96,11 +96,13 @@ module processor(halt, reset, clk);
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
 	
-	initial begin
-		strobe = 0;
-		rnotw = 0;
-	end
+	/* How to determine addr, wdata, rnotw, strobe for slowmem module? */
 
+	// toggle current process/thread signal
+	always@(posedge clk) begin
+		pid = !pid;
+	end
+	
 	// reset halt input from test bench,
 	// both thread's reg stack pointers, 
 	// both thread's program counters,
@@ -117,14 +119,9 @@ module processor(halt, reset, clk);
 	  `HALT1 <= 0;
 	  pid <= 0;
 	  $readmemh0(r);
-	//  $readmemh1(m);
+	//  $readmemh1(m); // done inside mem module
 	end
-	
-	// toggle current process/thread signal
-	always@(posedge clk) begin
-		pid = !pid;
-	end
-	
+		
 	// Halted?
 	assign halt = (HALT0 && HALT1);
 	// Stall for Test?
@@ -132,11 +129,21 @@ module processor(halt, reset, clk);
 	// Stall for Ret?
 	assign retstall = (s1op == `OPRet);
 
+	
+	// begin reading for the first instruction from memory
+	// intialize the write data to garbage
+	initial begin
+		strobe = 1;
+		rnotw = 1;
+		wdata = 16'hxxxx;
+	end
 	// Instruction fetch interface
 	//   if the opcode is 0, get the bottom 4 bits of the ir 
 	//   and set them as the bottom four bits of the op register
 	//   else get the opcode and set the bottom four bits as 0 
-	assign ir = m[`PC0]; // get instruction for current thread/process
+	// assign ir = m[`PC0]; // get instruction for current thread/process
+	assign addr = `PC0;
+	assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
 
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
