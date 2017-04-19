@@ -294,8 +294,20 @@ module processor(halt, reset, clk);
 	    `OPAnd: begin r[{`PID1, s2d}] <= s2dv & s2sv; end
 	    `OPOr: begin r[{`PID1, s2d}] <= s2dv | s2sv; end
 	    `OPXor: begin r[{`PID1, s2d}] <= s2dv ^ s2sv; end
-	    `OPLoad: begin r[{`PID1, s2d}] <= m[s2sv]; end
-	    `OPStore: begin m[s2dv] <= s2sv; end
+	    `OPLoad: begin 
+			  strobe <= 1; 
+			  addr <= s2sv;
+			  if(mfc) begin 
+				  r[{`PID1, s2d}] <= rdata;
+				  strobe <= 0;
+			  end
+			  else begin
+				  strobe <= strobe; 
+			  end
+	    end  
+	    //`OPLoad: begin r[{`PID1, s2d}] <= m[s2sv]; end
+	    `OPStore: begin strobe <= 1; addr <= s2dv; wdata <= s2sv; #1 strobe <= 0; end
+	    //`OPStore: begin m[s2dv] <= s2sv; end
 	    `OPPush,
 	    `OPCall: begin r[{`PID1, s2d}] <= s2immed; end
 	    `OPGet,
