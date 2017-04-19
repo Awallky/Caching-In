@@ -115,11 +115,16 @@ module processor(halt, reset, clk);
 	  `PC1 <= 16'h8000;
 	  `HALT0 <= 0;
 	  `HALT1 <= 0;
-	  pid <= clk;
+	  pid <= 0;
 	  $readmemh0(r);
 	//  $readmemh1(m);
 	end
-
+	
+	// toggle current process/thread signal
+	always@(posedge clk) begin
+		pid = !pid;
+	end
+	
 	// Halted?
 	assign halt = (HALT0 && HALT1);
 	// Stall for Test?
@@ -128,17 +133,11 @@ module processor(halt, reset, clk);
 	assign retstall = (s1op == `OPRet);
 
 	// Instruction fetch interface
-	/* 
-	   if the opcode is 0, get the bottom 4 bits of the ir 
-	   and set them as the bottom four bits of the op register
-	   else get the opcode and set the bottom four bits as 0 
-	 */
+	//   if the opcode is 0, get the bottom 4 bits of the ir 
+	//   and set them as the bottom four bits of the op register
+	//   else get the opcode and set the bottom four bits as 0 
 	assign ir = m[`PC0]; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
-	
-	always@(posedge clk) begin
-		pid = (clk % 2);
-	end
 
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
 	always @(posedge clk) begin 
