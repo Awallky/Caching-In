@@ -96,8 +96,6 @@ module processor(halt, reset, clk);
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
-	
-	/* How to determine addr, wdata, rnotw, strobe for slowmem module? */
 	/*
 		strobe - set for instruction fetches, load instructions, and store instructions
 			 reset after mfc == 1
@@ -105,7 +103,15 @@ module processor(halt, reset, clk);
 		wdata  - determined when a store instruction is made
 		addr   - determined by 
 	*/
-
+	
+	// (AMW)
+	// begin reading for the first instruction from memory
+	// intialize the write data to garbage
+	initial begin
+		strobe = 1;
+		rnotw = 1;
+	end
+	
 	// toggle current process/thread signal (AMW)
 	always@(posedge clk) begin
 		pid = !pid;
@@ -138,23 +144,13 @@ module processor(halt, reset, clk);
 	assign retstall = (s1op == `OPRet);
 
 	// (AMW)
-	// begin reading for the first instruction from memory
-	// intialize the write data to garbage
-	initial begin
-		strobe = 1;
-		rnotw = 1;
-	end
-	// (AMW)
 	// Instruction fetch interface
 	//   if the opcode is 0, get the bottom 4 bits of the ir 
 	//   and set them as the bottom four bits of the op register
 	//   else get the opcode and set the bottom four bits as 0 
-	// assign ir = m[`PC0]; // get instruction for current thread/process
-	assign irData = (mfc ? rdata : `noOp);		// Need to create logic for this
-	assign memAddr = `PC0; 				// Need to create logic for this
-	
+	// assign ir = m[`PC0]; // get instruction for current thread/process	
 	assign addr = `PC0;
-	assign ir = irData; // get instruction for current thread/process
+	assign ir = rdata; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
 
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
