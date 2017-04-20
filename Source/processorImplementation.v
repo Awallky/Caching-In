@@ -57,7 +57,8 @@
 `define OPPop	{4'ha, 4'h0}
 `define OPPre	{4'hb, 4'h0}
 
-`define OPNOP	{4'hf, 4'hf}
+`define OPNOP	{4'hf, 4'h0}
+`define noOp	16'f000
 
 `define NOREG   255
 
@@ -82,7 +83,7 @@ module processor(halt, reset, clk);
 	reg `PRE pre `PID;			// [3:0] pre [1:0]
 	reg pid;
 
-	// Memory objects
+	// Memory objects (AMW)
 	reg `WORD cache `CACHESIZE;		// [15:0] cache [7:0]
 	reg mfc;
 	reg `WORD rdata;			// [15:0] rdata
@@ -91,19 +92,26 @@ module processor(halt, reset, clk);
 	reg `BYTE pend;				// [7:0] pend
 	reg `WORD raddr;			// [15:0] raddr
 
-	// instantiate memory module
+	// instantiate memory module (AMW)
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
 	
 	/* How to determine addr, wdata, rnotw, strobe for slowmem module? */
+	/*
+		strobe - set for instruction fetches, load instructions, and store instructions
+			 reset after mfc == 1
+		rnotw  - 1 for read, 0 for write
+		wdata  - determined when a store instruction is made
+		addr   - determined by 
+	*/
 
-	// toggle current process/thread signal
+	// toggle current process/thread signal (AMW)
 	always@(posedge clk) begin
 		pid = !pid;
 	end
 	
-	// reset halt input from test bench,
+	// reset halt input from test bench, (AMW)
 	// both thread's reg stack pointers, 
 	// both thread's program counters,
 	// and both thread's halt statuses
@@ -129,21 +137,24 @@ module processor(halt, reset, clk);
 	// Stall for Ret?
 	assign retstall = (s1op == `OPRet);
 
-	
+	// (AMW)
 	// begin reading for the first instruction from memory
 	// intialize the write data to garbage
 	initial begin
 		strobe = 1;
 		rnotw = 1;
-		wdata = 16'hxxxx;
 	end
+	// (AMW)
 	// Instruction fetch interface
 	//   if the opcode is 0, get the bottom 4 bits of the ir 
 	//   and set them as the bottom four bits of the op register
 	//   else get the opcode and set the bottom four bits as 0 
 	// assign ir = m[`PC0]; // get instruction for current thread/process
+	assign irData = (mfc ? rdata : `noOp);		// Need to create logic for this
+	assign memAddr = `PC0; 				// Need to create logic for this
+	
 	assign addr = `PC0;
-	assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
+	assign ir = irData; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
 
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
@@ -302,7 +313,7 @@ module processor(halt, reset, clk);
 				  strobe <= 0;
 			  end
 			  else begin
-				  strobe <= strobe; 
+				  strobe <= strobe;
 			  end
 	    end  
 	    //`OPLoad: begin r[{`PID1, s2d}] <= m[s2sv]; end
