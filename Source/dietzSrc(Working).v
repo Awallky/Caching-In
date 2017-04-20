@@ -111,6 +111,7 @@ module processor(halt, reset, clk);
 	// toggle current process/thread signal
 	always@(posedge clk) begin
 		pid <= !pid;
+		//ir <= m[pc[pid]];
 	end
 
 	// reset halt input from test bench,
@@ -120,13 +121,13 @@ module processor(halt, reset, clk);
 	// then read from vmem0 into the stack registers
 	// and from vmem1 into main memory
 	always @(posedge reset) begin
-	  sp[0] <= 0;
-	  sp[1] <= 0;
-	  pc[0] <= 0;
-	  pc[1] <= 16'h8000;
-	  halts[0] <= 0;
-	  halts[1] <= 0;
-	  pid <= 0;
+	  sp[0] = 0;
+	  sp[1] = 0;
+	  pc[0] = 0;
+	  pc[1] = 16'h8000;
+	  halts[0] = 0;
+	  halts[1] = 0;
+	  pid = 1;
 	  $readmemh0(r);
 	  $readmemh1(m); // done inside mem module
 	end
