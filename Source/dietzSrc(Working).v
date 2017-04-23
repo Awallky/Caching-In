@@ -74,22 +74,10 @@ module processor(halt, reset, clk);
 	reg        rnotw, strobe;
 	reg  `WORD raddr;				// [15:0] raddr
 	reg  `PID  instWait;			// [1:0] loadInst
-	
-	// instantiate memory module
-	// I: addr, wdata, rnotw, strobe, clk
-	// O: mfc, rdata
-	//slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
 
 	// determine pid and addr for memory
 	always@(posedge clk) begin
 		pid <= !pid;
-		// state machine to determine addr 
-		//case({instWait[0], instWait[1]})
-		//0: begin $display("When neither process needs an instruction."); end
-		//1: begin $display("When process 1 needs an instruction."); end
-		//2: begin $display("When process 2 needs an instruction."); end
-		//3: begin $display("When both processes need an instruction."); end
-		//endcase
 	end
 
 	// reset halt input from test bench,
@@ -107,8 +95,6 @@ module processor(halt, reset, clk);
 	  halts[1] <= 0;
 	  pid <= 0;
 	  $readmemh0(r);
-	  //instWait[0] <= 1;
-	  //instWait[1] <= 1;
 	  $readmemh1(m); // done inside mem module
 	end
 	
@@ -116,8 +102,6 @@ module processor(halt, reset, clk);
 	// Instruction fetch interface
 	assign ir = m[pc[pid]]; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)};
-	//assign addr = pc[pid];
-	//assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
 
 	// Halted?
 	assign halt = (halts[0] && halts[1]);
@@ -281,67 +265,10 @@ module processor(halt, reset, clk);
 	    `OPCall: begin r[{!pid, s2d}] <= s2immed; end
 	    `OPGet,
 	    `OPPut: begin r[{!pid, s2d}] <= s2sv; end
-		default: begin $display("NoOP?"); end
 	  endcase
 	end
 endmodule
 /* ***************************************** END OF PROCESSOR IMPLEMENTATION ************************************ */
-
-/* ***************************************** MEMORY IMPLEMENTATION ************************************ */
-module slowmem(mfc, rdata, addr, wdata, rnotw, strobe, clk);
-	output reg mfc;				//
-	output reg `WORD rdata;		// [15:0] rdata
-	input `WORD addr, wdata;	// [15:0] addr, wdata
-	input rnotw, strobe, clk;	//
-	reg [7:0] pend;				//
-	reg `WORD raddr;			// [15:0] addr
-	reg `WORD m `MEMSIZE; 		// [15:0] m [65535:0]
-
-	initial begin
-	  pend <= 0;
-	  $readmemh1(m);
-	end
-
-	always @(posedge clk) begin
-	  if (strobe && rnotw) begin
-	    // new read request
-	    raddr <= addr;
-	    pend <= `MEMDELAY;
-	  end 
-	  else begin
-	    if (strobe && !rnotw) begin
-	      // do write
-	      m[addr] <= wdata;
-	    end
-	    // pending read?
-	    if (pend) begin
-	      // write satisfies pending read
-	      if ((raddr == addr) && strobe && !rnotw) begin
-			rdata <= wdata;
-			mfc <= 1;
-			pend <= 0;
-	      end 
-		  else if (pend == 1) begin
-			// finally ready
-			rdata <= m[raddr];
-			mfc <= 1;
-			pend <= 0;
-	      end 
-		  else begin
-			pend <= pend - 1;
-	      end
-	    end 
-		else begin
-	      // return invalid data
-	      rdata <= 16'hxxxx;
-	      mfc <= 0;
-	    end
-	  end
-	end
-endmodule
-
-/* ***************************************** END OF MEMORY IMPLEMENTATION ************************************ */
-
 
 module testbench;
 	reg reset = 0;
