@@ -75,28 +75,21 @@ module processor(halt, reset, clk);
 	reg  `WORD raddr;				// [15:0] raddr
 	reg  `PID  instWait;			// [1:0] loadInst
 	
-	// begin reading for the first instruction from memory
-	// intialize the write data to garbage
-	initial begin
-		strobe = 1;
-		rnotw = 1;
-	end
-
 	// instantiate memory module
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
-	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
+	//slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
 
 	// determine pid and addr for memory
 	always@(posedge clk) begin
 		pid <= !pid;
 		// state machine to determine addr 
-		case({instWait[0], instWait[1]})
-		0: begin $display("When neither process needs an instruction."); end
-		1: begin $display("When process 1 needs an instruction."); end
-		2: begin $display("When process 2 needs an instruction."); end
-		3: begin $display("When both processes need an instruction."); end
-		endcase
+		//case({instWait[0], instWait[1]})
+		//0: begin $display("When neither process needs an instruction."); end
+		//1: begin $display("When process 1 needs an instruction."); end
+		//2: begin $display("When process 2 needs an instruction."); end
+		//3: begin $display("When both processes need an instruction."); end
+		//endcase
 	end
 
 	// reset halt input from test bench,
@@ -114,17 +107,17 @@ module processor(halt, reset, clk);
 	  halts[1] <= 0;
 	  pid <= 0;
 	  $readmemh0(r);
-	  instWait[0] <= 1;
-	  instWait[1] <= 1;
-	  //$readmemh1(m); // done inside mem module
+	  //instWait[0] <= 1;
+	  //instWait[1] <= 1;
+	  $readmemh1(m); // done inside mem module
 	end
 	
 	
 	// Instruction fetch interface
-	//assign ir = m[pc[pid]]; // get instruction for current thread/process
-	assign addr = pc[pid];
-	assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
+	assign ir = m[pc[pid]]; // get instruction for current thread/process
 	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)};
+	//assign addr = pc[pid];
+	//assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
 
 	// Halted?
 	assign halt = (halts[0] && halts[1]);
@@ -282,21 +275,8 @@ module processor(halt, reset, clk);
 	    `OPAnd: begin r[{!pid, s2d}] <= s2dv & s2sv; end
 	    `OPOr: begin r[{!pid, s2d}] <= s2dv | s2sv; end
 	    `OPXor: begin r[{!pid, s2d}] <= s2dv ^ s2sv; end
-	    //`OPLoad: begin r[{!pid, s2d}] <= m[s2sv]; end // (from example solution)
-		`OPLoad: begin 
-			//r[{!pid, s2d}] <= m[s2sv];
-			//strobe <= 1;
-			//addr <= s2sv;
-			if(mfc)begin
-				r[{!pid, s2d}] <= rdata;
-				//strobe <= 0;
-			end
-			
-		end
-	    `OPStore: begin 
-			strobe <= 1;
-			//m[s2dv] <= s2sv; // (from  example solution)
-		end
+	    `OPLoad: begin r[{!pid, s2d}] <= m[s2sv]; end // (from example solution)
+	    `OPStore: begin m[s2dv] <= s2sv; end 	  // (from  example solution)
 	    `OPPush,
 	    `OPCall: begin r[{!pid, s2d}] <= s2immed; end
 	    `OPGet,
