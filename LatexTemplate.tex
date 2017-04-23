@@ -1,0 +1,44 @@
+\documentclass[12pt, twocolumn]{article}
+
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage{url,hyperref}
+
+\begin{document}
+
+\title{EE480 Assignment 2: A SIK Little Machine
+Implementor's Notes}
+
+\author{Matthew Hutchinson, Jared Payne, Austin Langton\\
+University of Kentucky, Lexington, KY USA\\
+Department of Electrical and Computer Engineering\\
+mshu226@g.uky.edu; jmpa235@g.uky.edu; Austin.Langton@uky.edu\\
+}
+
+\maketitle
+\begin{abstract}
+This project served as the initial design and implementation of a processor module written in Verilog for the SIK instruction set developed by Dr. Dietz. 
+\end{abstract}
+
+
+\section{General Approach}
+
+This lab involved designing and developing a processor module for the SIK instruction set architecture written using synthesizable Verilog code. The specifications for the SIK instruction set can be found on the course webpage.
+
+The first task in completing this assignment was to choose an encoding scheme to use with the AIK assembler for our processor. Our choice was to use a modified version of Jared’s encoding scheme from Assignment 1. The modifications involved correcting the Push encoding to use the sign extension listed in the specification document, as well as modifying the encoding pattern for instructions that could require a preliminary Pre instruction if the immediate given is larger than 12 bits. After making these adjustments, a basic outline of the processor was created in Verilog using the supplied example as a rough guide.
+
+The next task involved developing the actual Verilog implementation for the SIK processor. First, we laid out the encoding and some consistent sizing definitions using `define. These definitions were the opcodes and secondary opcodes for each of the instructions, as well as the bit sizes for words and memory, and the bit locations of opcodes and secondary opcodes. Next we laid out all the necessary registers for the processor, registers like the stack and main memory variables and the pre and preload registers among others. Next we made a skeleton implementation of the case statements for the processor and finally implemented all of the possible instructions using the specifications provided as part of Assignment 1.
+
+The last major task involved in this assignment was to develop a testbench module and test program written using the SIK instruction set. The testbench module used in our Verilog implementation is a copy of the supplied example testbench provided in the Assignment 2 specifications. For our test program, we opted for the approach of a large test SIK program that calls a Sys command if anything doesn’t behave as intended. In this program we developed smaller test sections that test some of the individual instruction in the SIK instruction set, then using one of the jumps or indirect jumps if test does not perform as expected. This allows us to achieve full line coverage for our Verilog module by ensuring that each case in the module (aside from defaults which correspond to errors) and each possibility in an if/else statement where applicable. 
+
+% insert a break to roughly level columns...
+\vfill\pagebreak
+
+\section{Issues}
+
+One of the big issues we've encountered during this assignment is a misunderstanding of the Pre instruction. The encoding we decided to use as the basis for our implementation of SIK originally assumed that each instruction that could possibly have a 16-bit immediate would require a Pre instruction before it every time, including when the immediate was small enough to fit in the 12-bit field. We had to revisit the encoding and make the correction, but after modifying the .aik file, our encoding seemed to work as expected. Another issue we encountered was the issue of using non-blocking assignment in our Verilog implementation. After completing the implementation with non-blocking assignment, it was found that we would have to use blocking assignment to be able to use the source and destination registers as outlined in the specs given in Assignment 1. This was easily fixed by simply revisiting the code and replacing the <= assignment operators with = assignmnet operators.  Another issue we encountered was the start state(s) for the module. Our initial implemenation had only one start state which would not provide the functionality we wanted (at the time we were using non-blocking assignment) so we split up the start state into start and start1 like in the provided example. We also had a slight issue where the program counter was not being incremented at the right time within the start states, but this was quickly fixed after the addition of a second start state. 
+
+We also encountered a slight challenge with creating the Implementor's Notes file. In our previous notes, we used a Word document version of the notes template, but decided to try out the LaTex version for this Implementor's Notes. It seems Debian/Ubuntu does not have as much support for Latex as Mac or Windows.  Even after using the most up to date libraries with texlive the compiler was unable to recognize many different types of control sequences including simple ones like "subtitle".  After playing with the control sequences for a long time, this is as close as we could get it to look like an Implementor's notes.
+
+\end{document}
