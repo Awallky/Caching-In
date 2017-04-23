@@ -3,30 +3,14 @@
 `define BYTE	  [7:0]
 `define Opcode	  [15:12]
 `define Immed	  [11:0]
-`define OP	  [7:0]
-`define PRE	  [3:0]
+`define OP	  	  [7:0]
+`define PRE	  	  [3:0]
 `define REGSIZE   [511:0] 		// 256 for each PID
 `define REGNUM	  [7:0]
 `define MEMSIZE   [65535:0]
-`define PID	  [1:0]
+`define PID	  	  [1:0]
 `define MEMDELAY  4
 `define CACHESIZE [7:0]
-
-// pid-dependent things
-`define	PID0	(pid) 		// current process ID, i.e. current thread
-`define	PID1	(!pid) 		// other process ID, i.e. other thread
-`define	PC0	 pc[`PID0] 	// Program counter of the current process/thread
-`define	PC1	 pc[`PID1] 	// Program Counter for the other thread/process
-`define	PRESET0	 preset[`PID0]  // Indicates whether the pre register of current thread has been set
-`define	PRESET1	 preset[`PID1]  // Indicates whether the pre register of other thread has been set
-`define	PRE0	 pre[`PID0] 	// Pre register for the current thread
-`define	PRE1	 pre[`PID1]	// Pre register for the other thread
-`define	TORF0	 torf[`PID0]    // tORf register  for the current process/thread
-`define	TORF1	 torf[`PID1]    // tORf register  for the other process/thread
-`define	SP0	 sp[`PID0]	// stack pointer to registers of current process/thread
-`define	SP1	 sp[`PID1]	// stack pointer to registers of other process/thread
-`define HALT0	 halts[`PID0]	// halt status of current thread
-`define	HALT1	 halts[`PID1]	// halt status of other thread
 
 // opcode values hacked into state numbers
 `define OPAdd	{4'h0, 4'h0}
@@ -57,8 +41,7 @@
 `define OPPop	{4'ha, 4'h0}
 `define OPPre	{4'hb, 4'h0}
 
-`define OPNOP	{4'hf, 4'h0}
-`define noOp	16'f000
+`define OPNOP	{4'hc, 4'h0}
 
 `define NOREG   255
 
@@ -67,119 +50,149 @@ module processor(halt, reset, clk);
 	output halt;
 	input reset, clk;
 
-	reg `WORD r `REGSIZE; 			// [15:0] r [511:0]
-	reg `WORD m `MEMSIZE;			// [15:0] m [65535:0]
-	reg `WORD pc `PID;			// [15:0] pc [1:0]
-	wire `OP op;				// [7:0] op
-	reg `OP s0op, s1op, s2op;		// [7:0] s0op, s1op, s2op
-	reg `REGNUM sp `PID;			// [7:0] sp [1:0]
-	reg `REGNUM s0d, s1d, s2d, s0s, s1s;	// [7:0] s0d, s1d, s2d, s0s, s1s
-	reg `WORD s0immed, s1immed, s2immed;	// [15:0] s0immed, s1immed, s2immed
-	reg `WORD s1sv, s1dv, s2sv, s2dv;	// [15:0] s1sv, s1dv, s2sv, s2dv
-	wire `WORD ir;				// [15:0] ir
-	reg `WORD immed;			// [15:0] immed
-	wire teststall, retstall, writestall;
-	reg `PID torf, preset, halts;		// [1:0] torf, preset, halts
-	reg `PRE pre `PID;			// [3:0] pre [1:0]
-	reg pid;
+	reg  `WORD   r `REGSIZE; 				// [15:0] r [511:0]
+	reg  `WORD   m `MEMSIZE;				// [15:0] m [65535:0]
+	reg  `WORD   pc `PID;					// [15:0] pc [1:0]
+	wire `OP     op;						// [7:0] op
+	reg  `OP     s0op, s1op, s2op;			// [7:0] s0op, s1op, s2op
+	reg  `REGNUM sp `PID;					// [7:0] sp [1:0]
+	reg  `REGNUM s0d, s1d, s2d, s0s, s1s;	// [7:0] s0d, s1d, s2d, s0s, s1s
+	reg  `WORD   s0immed, s1immed, s2immed;	// [15:0] s0immed, s1immed, s2immed
+	reg  `WORD   s1sv, s1dv, s2sv, s2dv;	// [15:0] s1sv, s1dv, s2sv, s2dv
+	reg  `WORD   ir;						// [15:0] ir
+	reg  `WORD   immed;						// [15:0] immed
+	wire         teststall, retstall, writestall;
+	reg  `PID    torf, preset, halts;		// [1:0] torf, preset, halts
+	reg  `PRE    pre `PID;					// [3:0] pre [1:0]
+	reg          pid;
+	
+	// Memory objects
+	reg  `WORD cache `CACHESIZE;	// [15:0] cache [7:0]
+	wire       mfc;
+	wire `WORD rdata;				// [15:0] rdata
+	wire `WORD wdata;				// [15:0] wdata
+	reg        rnotw;
+	wire `WORD addr;				// [15:0] raddr
+	reg  `PID  instWait, strobe;			// [1:0] loadInst
 
-	// Memory objects (AMW)
-	reg `WORD cache `CACHESIZE;		// [15:0] cache [7:0]
-	reg mfc;
-	reg `WORD rdata;			// [15:0] rdata
-	wire `WORD addr, wdata;			// [15:0] addr, wdata
-	wire rnotw, strobe;
-	reg `BYTE pend;				// [7:0] pend
-	reg `WORD raddr;			// [15:0] raddr
-
-	// instantiate memory module (AMW)
+	wire id;
+	// instantiate memory module
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
-	/*
-		strobe - set for instruction fetches, load instructions, and store instructions
-			 reset after mfc == 1
-		rnotw  - 1 for read, 0 for write
-		wdata  - determined when a store instruction is made
-		addr   - determined by 
-	*/
-	
-	// (AMW)
-	// begin reading for the first instruction from memory
-	// intialize the write data to garbage
-	initial begin
-		strobe = 1;
-		rnotw = 1;
-	end
-	
-	// toggle current process/thread signal (AMW)
+
+	// determine pid and addr for memory
 	always@(posedge clk) begin
-		pid = !pid;
+		pid <= !pid;
+		// state machine to determine addr 
+		case({instWait[!pid], instWait[pid]})
+		0:  begin 
+					$display("When neither process needs an instruction.");
+			end
+		1:  begin
+				// Need to send a load request
+				if( !strobeSent[pid] )begin
+					strobeSent[pid] <= 1; strobe <= 1; rnotw <= 1; addr <= pc[pid]; ir <= `OPNOP;
+				end 
+				else if( strobeSent[pid] && !mfc ) begin
+					strobe <= 0; ir <= `OPNOP;						// turn off load request
+				end
+				else if( strobeSent[pid] && mfc ) begin 			// retrieve instruction data
+					ir <= rdata; strobeSent[pid] <= 0; instWait[pid] <= 0;
+				end
+				else begin
+					ir <= `OPNOP;
+					$display("When current process needs an instruction.");
+				end
+			end
+		2:  begin
+				// Need to send a load request
+				if( !strobeSent[!pid] )begin
+					strobeSent[!pid] <= 1; strobe <= 1; rnotw <= 1; addr <= pc[!pid]; ir <= `OPNOP;
+				end 
+				else if( strobeSent[!pid] && !mfc ) begin
+					strobe <= 0; ir <= `OPNOP;						// turn off load request
+				end
+				else if( strobeSent[!pid] && mfc ) begin 			// retrieve instruction data
+					//ir <= rdata; 									// do not to need update ir for sleeping process
+					strobeSent[!pid] <= 0; instWait[!pid] <= 0;
+				end
+				else begin
+					ir <= `OPNOP;
+					$display("When other process an instruction.");
+				end
+			end
+				$display("When process 2 needs an instruction.\nWait until are the current process"); 
+			end
+		3:  begin 
+				$display("When both processes need an instruction."); 
+			end
+		endcase
 	end
 	
-	// reset halt input from test bench, (AMW)
-	// both thread's reg stack pointers, 
+	//assign addr = pc[pid];
+	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)};
+
+	// reset halt input from test bench,
+	// both thread's reg stack pointers,
 	// both thread's program counters,
 	// and both thread's halt statuses
 	// then read from vmem0 into the stack registers
 	// and from vmem1 into main memory
 	always @(posedge reset) begin
-	  halt <= 0;
-	  `SP0 <= 0;
-	  `SP1 <= 0;
-	  `PC0 <= 0;
-	  `PC1 <= 16'h8000;
-	  `HALT0 <= 0;
-	  `HALT1 <= 0;
+	  sp[0] <= 0;
+	  sp[1] <= 0;
+	  pc[0] <= 0;
+	  pc[1] <= 16'h8000;
+	  halts[0] <= 0;
+	  halts[1] <= 0;
 	  pid <= 0;
 	  $readmemh0(r);
-	//  $readmemh1(m); // done inside mem module
+	  instWait[0] <= 1;
+	  instWait[1] <= 1;
+	  //$readmemh1(m); // done inside mem module
 	end
-		
+	
+	// Instruction fetch interface
+	//assign ir = m[pc[pid]]; // get instruction for current thread/process
+	//assign addr = pc[pid];
+	//assign ir = (mfc ? rdata : `OPNOP); // get instruction for current thread/process
+	//assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)};
+
 	// Halted?
-	assign halt = (HALT0 && HALT1);
+	assign halt = (halts[0] && halts[1]);
 	// Stall for Test?
 	assign teststall = (s1op == `OPTest);
 	// Stall for Ret?
 	assign retstall = (s1op == `OPRet);
-
-	// (AMW)
-	// Instruction fetch interface
-	//   if the opcode is 0, get the bottom 4 bits of the ir 
-	//   and set them as the bottom four bits of the op register
-	//   else get the opcode and set the bottom four bits as 0 
-	// assign ir = m[`PC0]; // get instruction for current thread/process	
-	assign addr = `PC0;
-	assign ir = rdata; // get instruction for current thread/process
-	assign op = {(ir `Opcode), (((ir `Opcode) == 0) ? ir[3:0] : 4'd0)}; 
-
+	
 	// Instruction fetch from INSTRUCTION MEMORY (s0)
-	always @(posedge clk) begin 
+	always @(posedge clk) begin
 	  // This case statement sets immed register, accounting for pre
 	  case (op)
 	    `OPPre: begin
-	      `PRE0 <= ir `PRE;
-	      `PRESET0 <= 1;
+	      pre[pid] <= ir `PRE;
+	      preset[pid] <= 1;
 	      immed = ir `Immed;
 	    end
 	    `OPCall,
 	    `OPJump,
 	    `OPJumpF,
 	    `OPJumpT: begin
-		    if (`PRESET0) begin 	    // if preset of current thread has been set
-			immed = {`PRE0, ir `Immed}; // use the pre register and immed values for immed register
-			`PRESET0 <= 0;
-	      end 
-		  else begin 			    // Otherwise Take top bits of pc
-			immed <= {`PC0[14:12], ir `Immed};
+		    if (preset[pid]) begin 	    			// if preset of current thread has been set
+			immed = {pre[pid], ir `Immed}; 			// use the pre register and immed values for immed register
+			preset[pid] <= 0;
+	      end
+		  else begin 			    				// Otherwise Take top bits of pc
+			immed <= {pc[pid][14:12], ir `Immed};
 	      end
 	    end
 	    `OPPush: begin
-		    if (`PRESET0) begin 	    // if preset of current thread has been set
-			immed = {`PRE0, ir `Immed}; // use the pre register and immed values for immed register
-			`PRESET0 <= 0;
-	      end 
-		  else begin			    // Sign extend
+		    if (preset[pid]) begin 	    			// if preset of current thread has been set
+			immed = {pre[pid], ir `Immed}; 			// use the pre register and immed values for immed register
+			preset[pid] <= 0;
+	      end
+		  else begin			    				// Sign extend
 			immed = {{4{ir[11]}}, ir `Immed};
 	      end
 	    end
@@ -191,61 +204,75 @@ module processor(halt, reset, clk);
 	  case (op)
 	    `OPPre: begin
 	      s0op <= `OPNOP;
-	      `PC0 <= `PC0 + 1;
+	      pc[pid] <= pc[pid] + 1;
+		  instWait[pid] <= 1;
 	    end
 	    `OPCall: begin
-	      s0immed <= `PC0 + 1;
-	      `PC0 <= immed;
+	      s0immed <= pc[pid] + 1;
+	      pc[pid] <= immed;
 	      s0op <= `OPCall;
+		  instWait[pid] <= 1;
 	    end
 	    `OPJump: begin
-	      `PC0 <= immed;					// get the address 
+	      pc[pid] <= immed;									// get the address
 	      s0op <= `OPNOP;
+		  instWait[pid] <= 1;
 	    end
 	    `OPJumpF: begin
-	      if (teststall == 0) begin 	 		// if a test is being made, see if the branch is taken
-			`PC0 <= (`TORF0 ? (`PC0 + 1) : immed);	// if so, get the address; else, get the next instruction
-	      end 
+	      if (teststall == 0) begin 	 					// if a test is being made, see if the branch is taken
+			pc[pid] <= (torf[pid] ? (pc[pid] + 1) : immed);	// if so, get the address; else, get the next instruction
+	      end
 		  else begin
-			`PC0 <= `PC0 + 1;
+			pc[pid] <= pc[pid] + 1;
 	      end
 	      s0op <= `OPNOP;
+		  instWait[pid] <= 1;
 	    end
 	    `OPJumpT: begin
-	      if (teststall == 0) begin 	 		// if a test is being made, see if the branch is taken
-			`PC0 <= (`TORF0 ? immed : (`PC0 + 1));	// if so, get the address; else, get the next instruction
-	      end 
+	      if (teststall == 0) begin 	 					// if a test is being made, see if the branch is taken
+			pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1));	// if so, get the address; else, get the next instruction
+	      end
 		  else begin
-			`PC0 <= `PC0 + 1;
+			pc[pid] <= pc[pid] + 1;
 	      end
 	      s0op <= `OPNOP;
+		  instWait[pid] <= 1;
 	    end
-	    `OPRet: begin 
-	      if (retstall) begin				// checks if there is a pipe bubble due to a return opcode
-			s0op <= `OPNOP;				// if s1 is doing a return, s0 must wait 
-	      end 
-		  else if (s2op == `OPRet) begin		// if s2 is doing a return, s0 must wait 
+	    `OPRet: begin
+	      if (retstall) begin								// checks if there is a pipe bubble due to a return opcode
+			s0op <= `OPNOP;									// if s1 is doing a return, s0 must wait
+	      end
+		  else if (s2op == `OPRet) begin					// if s2 is doing a return, s0 must wait
 			s0op <= `OPNOP;
-			`PC0 <= s1sv;
-	      end 
+			pc[pid] <= s1sv;
+	      end
 		  else begin
 			s0op <= op;
 	      end
+		  instWait[pid] <= 1;
 	    end
-	    `OPSys: begin 					// basically idle this thread
+	    `OPSys: begin 										// basically idle this thread
 	      s0op <= `OPNOP;
-	      HALT0 <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
+	      halts[pid] <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
+		  instWait[pid] <= 0;
 	    end
+		`OPNOP: begin 
+		  s0op <= `OPNOP;									// basically idle this thread
+	      s0immed <= immed;
+	      pc[pid] <= pc[pid];
+		 end
 	    default: begin
 	      s0op <= op;
 	      s0immed <= immed;
-	      `PC0 <= `PC0 + 1;
+	      pc[pid] <= pc[pid] + 1;
+		  instWait[pid] <= 1;
 	    end
 	  endcase
 	end
 
 	// Instruction decode (s1)
-	// Changes the stack pointer for the other thread
+	// Changes the stack pointer for the previous thread 
+	// which has now propogated through to stage 1
 	always @(posedge clk) begin
 	  case (s0op)
 	    `OPAdd,
@@ -255,25 +282,25 @@ module processor(halt, reset, clk);
 	    `OPOr,
 	    `OPXor,
 	    `OPStore:
-	      begin s1d <= `SP1-1; s1s <= `SP1; `SP1 <= `SP1-1; end 
+	      begin s1d <= sp[!pid]-1; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]-1; end
 	    `OPTest:
-	      begin s1d <= `NOREG; s1s <= `SP1; `SP1 <= `SP1-1; end
+	      begin s1d <= `NOREG; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]-1; end
 	    `OPDup:
-	      begin s1d <= `SP1+1; s1s <= `SP1; `SP1 <= `SP1+1; end
+	      begin s1d <= sp[!pid]+1; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]+1; end
 	    `OPLoad:
-	      begin s1d <= `SP1; s1s <= `SP1; end
+	      begin s1d <= sp[!pid]; s1s <= sp[!pid]; end
 	    `OPRet:
-	      begin s1d <= `NOREG; s1s <= `NOREG; `PC1 <= r[{`PID1, `SP1}]; `SP1 <= `SP1-1; end
+	      begin s1d <= `NOREG; s1s <= `NOREG; pc[!pid] <= r[{!pid, sp[!pid]}]; sp[!pid] <= sp[!pid]; end
 	    `OPPush:
-	      begin s1d <= `SP1+1; s1s <= `NOREG; `SP1 <= `SP1+1; end
+	      begin s1d <= sp[!pid]+1; s1s <= `NOREG; sp[!pid] <= sp[!pid]+1; end
 	    `OPCall:
-	      begin s1d <= `SP1+1; s1s <= `NOREG; `SP1 <= `SP1+1; end
+	      begin s1d <= sp[!pid]+1; s1s <= `NOREG; sp[!pid] <= sp[!pid]+1; end
 	    `OPGet:
-	      begin s1d <= `SP1+1; s1s <= `SP1-(s0immed `REGNUM); `SP1 <= `SP1+1; end
+	      begin s1d <= sp[!pid]+1; s1s <= sp[!pid]-(s0immed `REGNUM); sp[!pid] <= sp[!pid]+1; end
 	    `OPPut:
-	      begin s1d <= `SP1-(s0immed `REGNUM); s1s <= `SP1; end
+	      begin s1d <= sp[!pid]-(s0immed `REGNUM); s1s <= sp[!pid]; end
 	    `OPPop:
-	      begin s1d <= `NOREG; s1s <= `NOREG; `SP1 <= `SP1-(s0immed `REGNUM); end
+	      begin s1d <= `NOREG; s1s <= `NOREG; sp[!pid] <= sp[!pid]-(s0immed `REGNUM); end
 	    default:
 	      begin s1d <= `NOREG; s1s <= `NOREG; end // not a register operation
 	  endcase
@@ -283,8 +310,8 @@ module processor(halt, reset, clk);
 
 	// Register read (s2)
 	always @(posedge clk) begin
-	  s2dv <= ((s1d == `NOREG) ? 0 : r[{`PID0, s1d}]);
-	  s2sv <= ((s1s == `NOREG) ? 0 : r[{`PID0, s1s}]);
+	  s2dv <= ((s1d == `NOREG) ? 0 : r[{pid, s1d}]);
+	  s2sv <= ((s1s == `NOREG) ? 0 : r[{pid, s1s}]);
 	  s2d <= s1d;
 	  s2op <= s1op;
 	  s2immed <= s1immed;
@@ -293,32 +320,34 @@ module processor(halt, reset, clk);
 	// ALU or DATA MEMORY access and write (s3)
 	always @(posedge clk) begin
 	  case (s2op)
-	    `OPAdd: begin r[{`PID1, s2d}] <= s2dv + s2sv; end
-	    `OPSub: begin r[{`PID1, s2d}] <= s2dv - s2sv; end
-	    `OPTest: begin `TORF1 <= (s2sv != 0); end
-	    `OPLt: begin r[{`PID1, s2d}] <= (s2dv < s2sv); end
-	    `OPDup: begin r[{`PID1, s2d}] <= s2sv; end
-	    `OPAnd: begin r[{`PID1, s2d}] <= s2dv & s2sv; end
-	    `OPOr: begin r[{`PID1, s2d}] <= s2dv | s2sv; end
-	    `OPXor: begin r[{`PID1, s2d}] <= s2dv ^ s2sv; end
-	    `OPLoad: begin 
-			  strobe <= 1; 
-			  addr <= s2sv;
-			  if(mfc) begin 
-				  r[{`PID1, s2d}] <= rdata;
-				  strobe <= 0;
-			  end
-			  else begin
-				  strobe <= strobe;
-			  end
-	    end  
-	    //`OPLoad: begin r[{`PID1, s2d}] <= m[s2sv]; end
-	    `OPStore: begin strobe <= 1; addr <= s2dv; wdata <= s2sv; #1 strobe <= 0; end
-	    //`OPStore: begin m[s2dv] <= s2sv; end
+	    `OPAdd: begin r[{!pid, s2d}] <= s2dv + s2sv; end
+	    `OPSub: begin r[{!pid, s2d}] <= s2dv - s2sv; end
+	    `OPTest: begin torf[!pid] <= (s2sv != 0); end
+	    `OPLt: begin r[{!pid, s2d}] <= (s2dv < s2sv); end
+	    `OPDup: begin r[{!pid, s2d}] <= s2sv; end
+	    `OPAnd: begin r[{!pid, s2d}] <= s2dv & s2sv; end
+	    `OPOr: begin r[{!pid, s2d}] <= s2dv | s2sv; end
+	    `OPXor: begin r[{!pid, s2d}] <= s2dv ^ s2sv; end
+	    //`OPLoad: begin r[{!pid, s2d}] <= m[s2sv]; end // (from example solution)
+		`OPLoad: begin 
+			//r[{!pid, s2d}] <= m[s2sv];
+			//strobe <= 1;
+			//addr <= s2sv;
+			if(mfc)begin
+				r[{!pid, s2d}] <= rdata;
+				//strobe <= 0;
+			end
+			
+		end
+	    `OPStore: begin 
+			strobe <= 1;
+			//m[s2dv] <= s2sv; // (from  example solution)
+		end
 	    `OPPush,
-	    `OPCall: begin r[{`PID1, s2d}] <= s2immed; end
+	    `OPCall: begin r[{!pid, s2d}] <= s2immed; end
 	    `OPGet,
-	    `OPPut: begin r[{`PID1, s2d}] <= s2sv; end
+	    `OPPut: begin r[{!pid, s2d}] <= s2sv; end
+		default: begin $display("NoOP?"); end
 	  endcase
 	end
 endmodule
@@ -326,13 +355,15 @@ endmodule
 
 /* ***************************************** MEMORY IMPLEMENTATION ************************************ */
 module slowmem(mfc, rdata, addr, wdata, rnotw, strobe, clk);
-	output reg mfc;
-	output reg `WORD rdata;
-	input `WORD addr, wdata;
-	input rnotw, strobe, clk;
-	reg [7:0] pend;
-	reg `WORD raddr;
-	reg `WORD m `MEMSIZE;
+	output reg mfc;				//
+	//input reg pid;
+	//output reg id;
+	output reg `WORD rdata;		// [15:0] rdata
+	input `WORD addr, wdata;	// [15:0] addr, wdata
+	input rnotw, strobe, clk;	//
+	reg [7:0] pend;				//
+	reg `WORD raddr;			// [15:0] addr
+	reg `WORD m `MEMSIZE; 		// [15:0] m [65535:0]
 
 	initial begin
 	  pend <= 0;
@@ -344,31 +375,36 @@ module slowmem(mfc, rdata, addr, wdata, rnotw, strobe, clk);
 	    // new read request
 	    raddr <= addr;
 	    pend <= `MEMDELAY;
-	  end else begin
+	  end 
+	  else begin
 	    if (strobe && !rnotw) begin
 	      // do write
 	      m[addr] <= wdata;
 	    end
-
 	    // pending read?
 	    if (pend) begin
 	      // write satisfies pending read
 	      if ((raddr == addr) && strobe && !rnotw) begin
-		rdata <= wdata;
-		mfc <= 1;
-		pend <= 0;
-	      end else if (pend == 1) begin
-		// finally ready
-		rdata <= m[raddr];
-		mfc <= 1;
-		pend <= 0;
-	      end else begin
-		pend <= pend - 1;
+			rdata <= wdata;
+			mfc <= 1;
+			pend <= 0;
+	      end 
+		  else if (pend == 1) begin
+			// finally ready
+			rdata <= m[raddr];
+			mfc <= 1;
+			pend <= 0;
+			//id <= pid;
+	      end 
+		  else begin
+			pend <= pend - 1;
 	      end
-	    end else begin
+	    end 
+		else begin
 	      // return invalid data
 	      rdata <= 16'hxxxx;
 	      mfc <= 0;
+		  //id <= 1'bx;
 	    end
 	  end
 	end
