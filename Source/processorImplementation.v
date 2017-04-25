@@ -62,7 +62,6 @@ module processor(halt, reset, clk);
 	reg  `WORD   s0immed, s1immed, s2immed;		// [15:0] s0immed, s1immed, s2immed
 	reg  `WORD   s1sv, s1dv, s2sv, s2dv;		// [15:0] s1sv, s1dv, s2sv, s2dv
 	reg  `WORD   ir `PID;				// [15:0] ir [1:0]
-//	reg `WORD   ir;
 	reg  `WORD   immed;				// [15:0] immed
 	wire         teststall, retstall, writestall;
 	reg  `PID    torf, preset, halts;		// [1:0] torf, preset, halts
@@ -70,54 +69,80 @@ module processor(halt, reset, clk);
 	reg          pid;
 	
 	// Memory objects
-	reg  `WORD cache `CACHESIZE;			// [15:0] cache [7:0]
-	wire       mfc;
-	wire `WORD rdata;				// [15:0] rdata
-	reg `WORD wdata;				// [15:0] wdata
-	reg        rnotw, strobe;
-	reg  `WORD addr;				// [15:0] raddr
-	reg  `PID  instWait, strobeSent;		// [1:0] loadInst
-	wire `BYTE pend;
-	reg getInstrPid;
+	reg  `WORD   cache `CACHESIZE;			// [15:0] cache [7:0]
+	wire         mfc;
+	wire `WORD   rdata;				// [15:0] rdata
+	reg  `WORD   wdata;				// [15:0] wdata
+	reg          rnotw, strobe;
+	reg  `WORD   addr;				// [15:0] raddr
+	reg  `PID    instWait, strobeSent;		// [1:0] loadInst
+	wire `BYTE   pend;
+	reg          getInstrPid;
+	reg          ldSt;
+	reg          ld;
+	reg  `BYTE   prevInstr;
 	
 	always @(posedge reset) begin
-	  sp[0] <= 0;
-	  sp[1] <= 0;
-	  pc[0] <= 0;
-	  pc[1] <= 16'h8000;
-	  halts[0] <= 0;
-	  halts[1] <= 0;
-	  pid <= 0;
+	  sp[0] 	<= 0;
+	  sp[1] 	<= 0;
+	  pc[0] 	<= 0;
+	  pc[1] 	<= 16'h8000;
+	  halts[0] 	<= 0;
+	  halts[1] 	<= 0;
+	  pid 		<= 0;
 	  //$readmemh0(r);
 	  //$readmemh1(m);
-	  strobe <= 0;
+	  strobe 	<= 0;
 	  strobeSent[0] <= 0;
 	  strobeSent[1] <= 0;
-	  rnotw <= 1;
-	  getInstrPid <= 0; // process 0 gets the first instruction request
-//	  ir <= `OPINSTWAIT;
-	  ir[0] <= `INSTWAIT;
-	  ir[1] <= `INSTWAIT;
+	  rnotw 	<= 1;
+	  getInstrPid 	<= 0; // process 0 gets the first instruction request
+	  ir[0] 	<= `INSTWAIT;
+	  ir[1] 	<= `INSTWAIT;
+	  ld 		<= 0;
+	  ldSt 		<= 0;
 	end
 	
 	// instantiate memory module
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
 	slowmem mem(.mfc(mfc), .rdata(rdata), .pend(pend), .addr(addr), .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
-
+	
 	// determine pid
-	// Determine which process gets an instruction
+	// Determine which process gets an instruction 
+	// (s (0.5) )
 	always@(posedge clk) begin
 		pid <= !pid;
 		$display("pid: %d, ir: %x, getInstrPid: %d, strobe: %d, addr: %x, pend: %d, rdata: %x, mfc: %d, strobeSent[pid]: %d", pid, ir[pid], getInstrPid, strobe, addr, pend, rdata, mfc, strobeSent[pid]);
 //		$display("pc[pid]: %x, op: %x", pc[pid], op);
 
-		// if not halted and it's the pid's turn to request an instruction
-		if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT ) begin
+		if(ld) begin
+			if(mfc) begin
+				ld <= 0; r[ldReg] <= rdata; ir[pid] <= `INSTWAIT; // ldReg holds destination register saved by s3 load request
+			end
+			else begin
+				ir[pid] <= `INSTWAIT; 
+			end
+		end
+		else if(ir[pid] == `OPLoad || ir[pid] == `OPStore) begin
+			ldSt <= 1; ir[pid] <= `INSTWAIT; 
+			if(ir[pid] == `OPLoad) begin
+				ld <= 1;
+			end
+		end
+		else if( s2op == `OPStore ) begin 
+	      		wdata <= s2sv; strobe <= 1; rnotw <= 0; addr <= s2dv; // store request
+			prevInstr <= s2op; ir[pid] <= `INSTWAIT;
+		end
+		else if( s2op == `OPLoad ) begin
+	      		addr <= s2sv; strobe <= 1; rnotw <= 1; // register destination address calculated in s2
+			prevInstr <= s2op; ldSt <= 1; ld <= 1; ir[pid] <= `INSTWAIT;
+		end // if not halted, no load or store request has been made and it's the pid's turn to request an instruction
+		else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT && !ldSt && !ld ) begin
 			if( !strobeSent[pid] ) begin
 				strobe <= 1; rnotw <= 1; strobeSent[pid] <= 1; addr <= pc[pid]; // send new load request
 			end
-			else if( strobeSent[pid] && !mfc ) begin
+			else if( (strobeSent[pid] || strobeSent[!pid])  && !mfc ) begin
 				strobe <= 0; // wait for the instruction, turn off new load request
 			end
 			else if( strobeSent[pid] && mfc ) begin
@@ -132,10 +157,10 @@ module processor(halt, reset, clk);
 			ir[!pid] <= rdata; strobeSent[!pid] <= 0; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction
 		end
 		else if(ir[pid] == `OPSys) begin
-			$display("Wait for the opcode to propogate.");
-		end
+			//$display("Wait for the opcode to propogate.");
+		end 							 // allow Sys call to propagate
 		else begin
-			ir[pid] <= `INSTWAIT; // not able to request a new instruction yet, wait
+			ir[pid] <= `INSTWAIT; 				 // not able to request a new instruction yet, wait
 		end
 	end
 
@@ -305,18 +330,16 @@ module processor(halt, reset, clk);
 	    `OPOr: begin r[{!pid, s2d}] <= s2dv | s2sv; end
 	    `OPXor: begin r[{!pid, s2d}] <= s2dv ^ s2sv; end
 	    //`OPLoad: begin r[{!pid, s2d}] <= m[s2sv]; end // (from example solution)
-		`OPLoad: begin 
-			//r[{!pid, s2d}] <= m[s2sv];
-			addr <= s2sv;
-			if(mfc)begin
-				r[{!pid, s2d}] <= rdata;
-			end
-			
-		end
+	    `OPLoad: begin 
+	      //r[{!pid, s2d}] <= m[s2sv];
+	     // if(mfc)begin
+	     //r[{!pid, s2d}] <= rdata;
+	     ldReg <= {!pid, s2d}; 
+	     // end
+	    end
 	    `OPStore: begin 
-			strobe <= 1; wdata <= s2sv; addr <= s2dv; rnotw <= 0;
-			//m[s2dv] <= s2sv; // (from  example solution)
-		end
+	      //m[s2dv] <= s2sv; // (from  example solution)
+	    end
 	    `OPPush,
 	    `OPCall: begin r[{!pid, s2d}] <= s2immed; end
 	    `OPGet,
@@ -403,7 +426,7 @@ module testbench;
 	    #10 clk = 0;
 	    count = count + 1;
 	   if(count >= 9000) begin
-		$display("Count >= 9000");
+		$display("Count >= 9000.");
 	   end
 	  end
 	  $finish;
