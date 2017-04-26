@@ -9,7 +9,7 @@
 	   - Valid === If something from memory has been put into the cache line
 	   - Dirty === When CPU writes to the cache
 	   - Clean/Not Dirty == When memory writes to the cache
-	   - Cache line will contain {validBit, DirtyBit, instr/data word} totalling 18 bits
+	   - Cache line will contain {validBit, DirtyBit, instr/data address, instr/data } totalling 34 bits
 	   - As things are retrieved from memory, place them into the ir[pid] AND into the cache
 */
 
@@ -25,11 +25,19 @@
 `define MEMSIZE   	  [65535:0]
 `define PID	  	  [1:0]
 `define MEMDELAY  	  4
-`define CACHESIZE 	  8
-`define CACHELINESIZE	  18			// valid, dirty bit, instr/data word
 
-`define CACHEARRAY	  [`CACHESIZE-1:0]
-`define CACHELINE	  [`CACHELINESIZE-1:0]
+// cache sizes and locations
+`define CACHESIZE 	  8
+`define CACHEBLOCKSIZE	  34			// valid, dirty bit, instr/data addr
+
+`define CACHE_ELEMENTS	  [`CACHESIZE-1:0]	
+`define CACHEBLOCK	  [`CACHEBLOCKSIZE-1:0]	// [33:0] {valid, dirty, addr, instr/data}
+
+`define CACHEDATA 	  [15:0]
+`define CACHEADDR 	  [31:16]
+`define CACHEDIRT 	  [32]
+`define CACHEVALID	  [33]
+
 
 // opcode values hacked into state numbers
 `define OPAdd	{4'h0, 4'h0}
@@ -70,42 +78,44 @@
 
 /* ***************************************** PROCESSOR IMPLEMENTATION ************************************ */
 module processor(halt, reset, clk);
-	output halt;
-	input reset, clk;
+	output 		halt;
+	input 		reset, clk;
 
-	reg  `WORD   r `REGSIZE; 			// [15:0] r [511:0]
-	reg  `WORD   m `MEMSIZE;			// [15:0] m [65535:0]
-	reg  `WORD   pc `PID;				// [15:0] pc [1:0]
-	wire `OP     op;				// [7:0] op
-	reg  `OP     s0op, s1op, s2op;			// [7:0] s0op, s1op, s2op
-	reg  `REGNUM sp `PID;				// [7:0] sp [1:0]
-	reg  `REGNUM s0d, s1d, s2d, s0s, s1s;		// [7:0] s0d, s1d, s2d, s0s, s1s
-	reg  `WORD   s0immed, s1immed, s2immed;		// [15:0] s0immed, s1immed, s2immed
-	reg  `WORD   s1sv, s1dv, s2sv, s2dv;		// [15:0] s1sv, s1dv, s2sv, s2dv
-	reg  `WORD   ir `PID;				// [15:0] ir [1:0]
-	reg  `WORD   immed;				// [15:0] immed
-	wire         teststall, retstall, writestall;
-	reg  `PID    torf, preset, halts;		// [1:0] torf, preset, halts
-	reg  `PRE    pre `PID;				// [3:0] pre [1:0]
-	reg          pid;
+	reg  `WORD   	r `REGSIZE; 			// [15:0] r [511:0]
+	reg  `WORD   	m `MEMSIZE;			// [15:0] m [65535:0]
+	reg  `WORD   	pc `PID;				// [15:0] pc [1:0]
+	wire `OP     	op;				// [7:0] op
+	reg  `OP     	s0op, s1op, s2op;			// [7:0] s0op, s1op, s2op
+	reg  `REGNUM 	sp `PID;				// [7:0] sp [1:0]
+	reg  `REGNUM 	s0d, s1d, s2d, s0s, s1s;		// [7:0] s0d, s1d, s2d, s0s, s1s
+	reg  `WORD   	s0immed, s1immed, s2immed;		// [15:0] s0immed, s1immed, s2immed
+	reg  `WORD   	s1sv, s1dv, s2sv, s2dv;		// [15:0] s1sv, s1dv, s2sv, s2dv
+	reg  `WORD   	ir `PID;				// [15:0] ir [1:0]
+	reg  `WORD   	immed;				// [15:0] immed
+	wire         	teststall, retstall, writestall;
+	reg  `PID    	torf, preset, halts;		// [1:0] torf, preset, halts
+	reg  `PRE    	pre `PID;				// [3:0] pre [1:0]
+	reg          	pid;
 	
 	// Memory objects
-	wire         mfc;
-	wire `WORD   rdata;				// [15:0] rdata
-	reg  `WORD   wdata;				// [15:0] wdata
-	reg          rnotw, strobe;
-	reg  `WORD   addr;				// [15:0] raddr
-	reg  `PID    instWait, strobeSent;		// [1:0] loadInst
-	wire `BYTE   pend;
-	reg          getInstrPid;
-	reg          ldSt;
-	reg          ld;
-	reg  `BYTE   prevInstr;
-	reg  [9:0]  ldReg;
+	wire         	mfc;
+	wire `WORD   	rdata;				// [15:0] rdata
+	reg  `WORD   	wdata;				// [15:0] wdata
+	reg          	rnotw, strobe;
+	reg  `WORD   	addr;				// [15:0] raddr
+	reg  `PID    	instWait, strobeSent;		// [1:0] loadInst
+	wire `BYTE   	pend;
+	reg          	getInstrPid;
+	reg          	ldSt;
+	reg          	ld;
+	reg  `BYTE   	prevInstr;
+	reg  [9:0]  	ldReg;
 	
 	// Cache Objects
-	reg `CACHELINE cache `CACHEARRAY; // [17:0] cache [7:0]
+	reg `CACHEBLOCK	instrCache `CACHE_ELEMENTS; // [33:0] cache [7:0]
+	reg `CACHEBLOCK dataCache  `CACHE_ELEMENTS; // [33:0] cache [7:0]
 	
+	wire `WORD	dataCacheAddr, instrCacheAddr;
 
 	always @(posedge reset) begin
 	  sp[0] 	<= 0;
@@ -147,17 +157,22 @@ module processor(halt, reset, clk);
 		
 	if( !ld && !ldSt ) begin
 		if(ir[pid] == `LOAD) begin
-			ir[pid] <= `INSTWAIT; ld <= 1; ldSt <= 1; strobeSent[pid] <= 1;	 	 // load instr flags set
+			/* NOTE: have raddr from memory module output for storage in cache block */
+			/*  CHECK CACHE FOR DATA  */
+			ir[pid] <= `INSTWAIT; ld <= 1; ldSt <= 1; strobeSent[pid] <= 1;	 	 			  // load instr flags set
 			strobe <= 1; rnotw <= 1; addr <= r[{pid, sp[pid]}]; ldReg <= {!pid, sp[pid]}; 	 // load request
 		end
 		else if(ir[pid] == `STORE) begin
-		 	ir[pid] <= `INSTWAIT; ld <= 0; ldSt <= 1; strobeSent[pid] <= 1;	 // store instr flags
+			/* CHECK CACHE FOR NON-MEMORY INSTRUCTIONS */
+		 	ir[pid] <= `INSTWAIT; ld <= 0; ldSt <= 1; strobeSent[pid] <= 1;	 							// store instr flags
 		 	strobe <= 1; rnotw <= 1; wdata <= r[{pid, sp[pid]}] ; addr <= r[{pid,sp[pid]}-1]; 			 // store request
 		end
 		else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT && !ldSt && !ld ) begin
+			// No load instruction request sent
 			if( !strobeSent[pid] ) begin
+				/* CHECK CACHE FOR INSTRUCTIONS BEFORE REQUESTING INSTRUCTION */
 				strobe <= 1; rnotw <= 1; strobeSent[pid] <= 1; addr <= pc[pid]; // send new load request
-			end
+			end // load request sent, need to cancel strobe
 			else if( (strobeSent[pid] || strobeSent[!pid])  && !mfc ) begin
 				strobe <= 0; // wait for the instruction, turn off new load request
 			end
