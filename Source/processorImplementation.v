@@ -1,20 +1,35 @@
 /*
+	- Pipelined Source code courtesy of Hank Dietz
+	- Modified by Adam Walls, Seifalla Moustafa, Austin Langton
+	- Implements a hyperthreaded, 5-stage pipelined processor 
+	  with a direct-mapped cache implementation and a memory module 
+	  simulating a delay in loading data from main memory.
 
+	***Notes about cache:
+	   - Valid === If something from memory has been put into the cache line
+	   - Dirty === When CPU writes to the cache
+	   - Clean/Not Dirty == When memory writes to the cache
+	   - Cache line will contain {validBit, DirtyBit, instr/data word} totalling 18 bits
+	   - As things are retrieved from memory, place them into the ir[pid] AND into the cache
 */
 
 // basic sizes of things
-`define WORD	  [15:0]
-`define BYTE	  [7:0]
-`define Opcode	  [15:12]
-`define Immed	  [11:0]
+`define WORD	  	  [15:0]
+`define BYTE	  	  [7:0]
+`define Opcode	  	  [15:12]
+`define Immed	  	  [11:0]
 `define OP	  	  [7:0]
 `define PRE	  	  [3:0]
-`define REGSIZE   [511:0] 		// 256 for each PID
-`define REGNUM	  [7:0]
-`define MEMSIZE   [65535:0]
+`define REGSIZE   	  [511:0] 		// 256 for each PID
+`define REGNUM	  	  [7:0]
+`define MEMSIZE   	  [65535:0]
 `define PID	  	  [1:0]
-`define MEMDELAY  4
-`define CACHESIZE [7:0]
+`define MEMDELAY  	  4
+`define CACHESIZE 	  8
+`define CACHELINESIZE	  18			// valid, dirty bit, instr/data word
+
+`define CACHEARRAY	  [`CACHESIZE-1:0]
+`define CACHELINE	  [`CACHELINESIZE-1:0]
 
 // opcode values hacked into state numbers
 `define OPAdd	{4'h0, 4'h0}
@@ -51,7 +66,6 @@
 `define LOAD       16'h0008
 `define STORE      16'h0009
 
-
 `define NOREG   255
 
 /* ***************************************** PROCESSOR IMPLEMENTATION ************************************ */
@@ -76,7 +90,6 @@ module processor(halt, reset, clk);
 	reg          pid;
 	
 	// Memory objects
-	reg  `WORD   cache `CACHESIZE;			// [15:0] cache [7:0]
 	wire         mfc;
 	wire `WORD   rdata;				// [15:0] rdata
 	reg  `WORD   wdata;				// [15:0] wdata
@@ -88,8 +101,11 @@ module processor(halt, reset, clk);
 	reg          ldSt;
 	reg          ld;
 	reg  `BYTE   prevInstr;
-	reg  [16:0]  ldReg;
-//	reg  `REGNUM  spDec;
+	reg  [9:0]  ldReg;
+	
+	// Cache Objects
+	reg `CACHELINE cache `CACHEARRAY; // [17:0] cache [7:0]
+	
 
 	always @(posedge reset) begin
 	  sp[0] 	<= 0;
@@ -441,6 +457,9 @@ module testbench;
 	    count = count + 1;
 	   if(count >= 9000) begin
 		$display("Count >= 9000.");
+	   end
+	   else if(halted) begin
+	   	$display("HALTED!!! Hail SCIENCE!");
 	   end
 	  end
 	  $finish;
