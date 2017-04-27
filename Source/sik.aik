@@ -2,27 +2,23 @@
 
 ; SPECIFICATIONS
 
-Add	:= 0x0:4 0:12
+Add		:= 0x0:4 0:12
 Sub  	:= 0x0:4 1:12
-
 Test	:= 0x0:4 2:12
-Lt      := 0x0:4 3:12
-
-Dup     := 0x0:4 4:12
-And	:= 0x0:4 5:12
-
+Lt    := 0x0:4 3:12
+Dup   := 0x0:4 4:12
+And		:= 0x0:4 5:12
 Or    := 0x0:4 6:12
 Xor   := 0x0:4 7:12
-
 Load  := 0x0:4 8:12
 Store := 0x0:4 9:12
 Ret   := 0x0:4 10:12
-Sys   := 0x0:4 11:12
+Sys		:= 0x0:4 11:12
 
-Push .immed ?((. & 0xf000) == (.immed & 0xf000)) := 0x1:4 .immed:12
+Push .immed ?( (.immed & 0xf000)==0xf000 || (.immed&0xf000)== 0 ) := 0x1:4 .immed:12
   Push .immed := 0xa:4  0:8 (.immed>>12):4 0x1:4 .immed:12
 
-Call .immed ?((. & 0xf000) == (.immed & 0xf000)):= 0x4:4 .immed:12
+Call .immed ?((. & 0xf000) == (.immed & 0xf000)) := 0x4:4 .immed:12
   Call .immed  := 0xb:4  0:8 (.immed>>12):4    0x4:4 .immed:12
 JumpF .immed ?((. & 0xf000) == (.immed & 0xf000)) := 0x5:4 .immed:12
     JumpF .immed := 0xb:4  0:8 (.immed>>12):4    0x5:4 .immed:12
@@ -37,4 +33,5 @@ Pop .immed      := 0xa:4 .immed:12
 Pre .immed      := 0xb:4  0:8 (.immed>>12):4
 
 NoOp := 0xf:4 0x0:8 0xf:4
+
 ;END OF SPECIFICATIONS
