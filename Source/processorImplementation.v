@@ -205,9 +205,9 @@ module processor(halt, reset, clk);
 			 	ir[pid] <= `INSTWAIT; ld <= `FALSE; ldSt <= `TRUE; strobeSent[pid] <= `TRUE;	 	// store instr flags
 		 		strobe <= `TRUE; rnotw <= `WRITE; 				 	// store request
 				if(cacheDirty) begin
-					dataCache[s2dv]`CACHE_DATA      = s2sv; 
-					dataCache[s2dv]`CACHE_DIRTY_BIT = `NOT_DIRTY;
-					dataCache[s2dv]`CACHE_VALID_BIT = `VALID;
+					dataCache[s2dv]`CACHE_DATA      <= s2sv; 
+					dataCache[s2dv]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+					dataCache[s2dv]`CACHE_VALID_BIT <= `VALID;
 				end
 			end
 			else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT  && !ld && !ldSt ) begin
@@ -259,7 +259,7 @@ module processor(halt, reset, clk);
 				instrCache[addrOut]`CACHE_ADDR	    <= addrOut;
 				instrCache[addrOut]`CACHE_DATA	    <= rdata;
 			end
-			else if(ir[pid] == `OPSys) begin   end			 // allow Sys call to propagate
+			else if(ir[pid] == `OPSys) begin   end			 // allow Sys call to propagate by not changing ir
 			else begin
 				ir[pid] <= `INSTWAIT; 				 // not able to request a new instruction yet, wait
 			end
