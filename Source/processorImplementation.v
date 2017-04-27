@@ -312,10 +312,10 @@ module processor(halt, reset, clk);
 		    if (preset[pid]) begin 	    			// if preset of current thread has been set
 			immed = {pre[pid], ir[pid] `Immed}; 		// use the pre register and immed values for immed register
 			preset[pid] <= 0;
-	      end
-		  else begin			    			// Sign extend
+	      	    end
+		    else begin			    			// Sign extend
 			immed = {{4{ir[pid][11]}}, ir[pid] `Immed};
-	      end
+	            end
 	    end
 	    default:
 	      immed = ir[pid] `Immed;
@@ -323,63 +323,29 @@ module processor(halt, reset, clk);
 
 	  // This case statement sets s0immed, pc, s0op, halt
 	  case (op)
-	    `OPPre: begin
-	      s0op <= `OPNOP;
-	      pc[pid] <= pc[pid] + 1;
-	    end
-	    `OPCall: begin
-	      s0immed <= pc[pid] + 1;
-	      pc[pid] <= immed;
-	      s0op <= `OPCall;
-	    end
-	    `OPJump: begin
-	      pc[pid] <= immed;						// get the address
-	      s0op <= `OPNOP;
-	    end
+	    `OPPre: begin s0op <= `OPNOP; pc[pid] <= pc[pid] + 1; end
+	    `OPCall: begin s0immed <= pc[pid] + 1; pc[pid] <= immed; s0op <= `OPCall; end
+	    `OPJump: begin pc[pid] <= immed; s0op <= `OPNOP; end
 	    `OPJumpF: begin
-	      if (teststall == 0) begin 	 			// if a test is being made, see if the branch is taken
-			pc[pid] <= (torf[pid] ? (pc[pid] + 1) : immed);	// if so, get the address; else, get the next instruction
-	      end
-		  else begin
-			pc[pid] <= pc[pid] + 1;
-	      end
-	      s0op <= `OPNOP;
+		    if (teststall == 0) begin pc[pid] <= (torf[pid] ? (pc[pid] + 1) : immed); end
+	      	    else begin pc[pid] <= pc[pid] + 1; end
+	            s0op <= `OPNOP;
 	    end
 	    `OPJumpT: begin
-	      if (teststall == 0) begin 	 			// if a test is being made, see if the branch is taken
-			pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1));	// if so, get the address; else, get the next instruction
-	      end
-		  else begin
-			pc[pid] <= pc[pid] + 1;
-	      end
+	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1));	end
+	      else begin pc[pid] <= pc[pid] + 1; end
 	      s0op <= `OPNOP;
 	    end
 	    `OPRet: begin
-	      if (retstall) begin					// checks if there is a pipe bubble due to a return opcode
-			s0op <= `OPNOP;					// if s1 is doing a return, s0 must wait
-	      end
-		  else if (s2op == `OPRet) begin			// if s2 is doing a return, s0 must wait
-			s0op <= `OPNOP;
-			pc[pid] <= s1sv;
-	      end
-		  else begin
-			s0op <= op;
-	      end
+		   if (retstall) begin s0op <= `OPNOP; end
+		   else if (s2op == `OPRet) begin s0op <= `OPNOP; pc[pid] <= s1sv; end
+		   else begin s0op <= op; end
 	    end
-	    `OPSys: begin 						// basically idle this thread
-	      s0op <= `OPNOP;
-	      halts[pid] <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
+	    `OPSys: begin s0op <= `OPNOP; halts[pid] <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
 	      $display("s0op: %x, s1op: %x, s2op: %x", s0op, s1op, s2op); // show the sys call propagate through the pipeline
 	    end
-	    `OPINSTWAIT: begin 
-	      s0op <= op;						// basically idle this thread
-	      s0immed <= immed;
-	    end
-	    default: begin
-	      s0op <= op;
-	      s0immed <= immed;
-	      pc[pid] <= pc[pid] + 1;
-	    end
+	    `OPINSTWAIT: begin s0op <= op; s0immed <= immed; end
+	    default: begin s0op <= op; s0immed <= immed; pc[pid] <= pc[pid] + 1; end
 	  endcase
 	end
 
