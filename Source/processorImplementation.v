@@ -274,7 +274,7 @@ module processor(halt, reset, clk);
 				dataCache[addrOut]`CACHE_ADDR 	   <= addrOut;
 				dataCache[addrOut]`CACHE_DATA	   <= rdata;
 			end
-			strobe <= 0; ir[pid] <= `INSTWAIT; ldSt <= `FALSE;
+			strobe <= 0; ir[pid] <= `INSTWAIT; ldSt <= `FALSE; strobeSent <= 2'b00;
 		end
 	end // end always block
 
@@ -300,22 +300,12 @@ module processor(halt, reset, clk);
 	    `OPJump,
 	    `OPJumpF,
 	    `OPJumpT: begin
-		    if (preset[pid]) begin 	    			// if preset of current thread has been set
-			immed = {pre[pid], ir[pid] `Immed}; 		// use the pre register and immed values for immed register
-			preset[pid] <= 0;
-	      end
-		  else begin 			    			// Otherwise Take top bits of pc
-			immed <= {pc[pid][14:12], ir[pid] `Immed};
-	      end
+		    if (preset[pid]) begin immed = {pre[pid], ir[pid] `Immed}; preset[pid] <= 0; end
+		  else begin immed <= {pc[pid][14:12], ir[pid] `Immed}; end
 	    end
 	    `OPPush: begin
-		    if (preset[pid]) begin 	    			// if preset of current thread has been set
-			immed = {pre[pid], ir[pid] `Immed}; 		// use the pre register and immed values for immed register
-			preset[pid] <= 0;
-	      	    end
-		    else begin			    			// Sign extend
-			immed = {{4{ir[pid][11]}}, ir[pid] `Immed};
-	            end
+		    if (preset[pid]) begin immed = {pre[pid], ir[pid] `Immed}; preset[pid] <= 0; end
+		    else begin immed = {{4{ir[pid][11]}}, ir[pid] `Immed}; end
 	    end
 	    default:
 	      immed = ir[pid] `Immed;
@@ -328,8 +318,8 @@ module processor(halt, reset, clk);
 	    `OPJump: begin pc[pid] <= immed; s0op <= `OPNOP; end
 	    `OPJumpF: begin
 		    if (teststall == 0) begin pc[pid] <= (torf[pid] ? (pc[pid] + 1) : immed); end
-	      	    else begin pc[pid] <= pc[pid] + 1; end
-	            s0op <= `OPNOP;
+	      	else begin pc[pid] <= pc[pid] + 1; end
+	        s0op <= `OPNOP;
 	    end
 	    `OPJumpT: begin
 	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1));	end
@@ -423,7 +413,7 @@ module processor(halt, reset, clk);
 				end
 			end 
 			if(cacheHit) begin
-				$display("s2 LOAD cache hit!");
+				$display("s2 DATA cache hit!");
 			end // cache miss, load request
 			else begin
 				addr <= s2sv; ldReg <= {!pid, s2d}; 
@@ -454,10 +444,10 @@ module slowmem(mfc, rdata, addrOut, pend, addr, wdata, rnotw, strobe, clk);
 
 	initial begin
 	  pend <= 0;
-	  // $readmemh0(m); // for running in icarus cgi interface
+	  $readmemh0(m); // for running in icarus cgi interface
 	  // $readmemh("./../Test\ Modules/storeProg1.vmem",m); // for running in iverilog
 	  // $readmemh("./../Test\ Modules/testProg1.vmem",m);
-	   $readmemh("./../Test\ Modules/loadProg1.vmem", m);
+	  // $readmemh("./../Test\ Modules/loadProg1.vmem", m);
 	end
 
 	always @(posedge clk) begin
