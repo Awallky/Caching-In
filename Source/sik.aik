@@ -37,7 +37,4 @@ Pop .immed      := 0xa:4 .immed:12
 Pre .immed      := 0xb:4  0:8 (.immed>>12):4
 
 NoOp := 0xf:4 0x0:8 0xf:4
-.segment .text 8 0x0000000 0 .VMEM
-.segment .data 8 0x1000000 0 .VMEM
-.const 0 .lowfirst
 ;END OF SPECIFICATIONS
