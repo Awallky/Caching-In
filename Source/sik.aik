@@ -1,5 +1,3 @@
-;Author(s): Adam Walls, Seiffalla Moustafa, Austin Langton
-
 .NOARGALU := 0:4 .this:12
 .alias .NOARGALU 0 Add Sub Test Lt Dup And Or Xor Load Store Ret Sys
 
@@ -11,7 +9,7 @@
 .alias .SIXTEENBIT 1 Push 4 Call JumpF Jump JumpT  
 
 Pre .a := 0xb:4 (.a >> 12):12
+.segment .text 8 0x1000000 0x0000 .VMEM
+.const 0 .lowfirst
 
-;.segment .text 8 0x1000000 0 .VMEM
-;.segment .text 8 0x1000000 0x8000 .VMEM
-;.const 0 .lowfirst
+; *NOTE: Use .origin 0x0000 <assembly code> .origin 0x8000 <assembly code> to set the location counter for the aik cgi program
