@@ -131,6 +131,7 @@ module processor(halt, reset, clk);
 	// Cache Objects
 	reg  `CACHE_BLOCK instrCache `CACHE_ELEMENTS; 	// [33:0] cache [7:0]
 	reg  `CACHE_BLOCK dataCache  `CACHE_ELEMENTS; 	// [33:0] cache [7:0]
+	reg  `WORD		  instrCacheIndex, dataCacheIndex; 
 	
 	reg               cacheHit, cacheDirty;
 
@@ -165,6 +166,8 @@ module processor(halt, reset, clk);
 		instrCache[i] `DOUBLE_WORD <= 32'hxxxxxxxx;	// cache addr/data/instr set to garbage
 		dataCache [i] `DOUBLE_WORD <= 32'hxxxxxxxx;				
 	  end
+	  instrCacheIndex <= 0;
+	  dataCacheIndex <= 0;
 	end // end reset block
 	
 	// instantiate memory module
@@ -178,12 +181,12 @@ module processor(halt, reset, clk);
 	// (s (0.5) )
 	always@(posedge clk) begin
 		pid <= !pid;
-	/* 
-		  	  $display("pid: %d, ir: %x, getInstrPid: %d, strobe: %d, addr: %x, pend: %d, rdata: %x, mfc: %d, strobeSent[pid]: %d", pid, ir[pid], getInstrPid, strobe, addr, pend, rdata, mfc, strobeSent[pid]);
+	 
+		  	  $display("pid: %d, pc[pid]: %x, ir: %x, getInstrPid: %d, strobe: %d, addr: %x, pend: %d, rdata: %x, mfc: %d, strobeSent[pid]: %d", pid, pc[pid], ir[pid], getInstrPid, strobe, addr, pend, rdata, mfc, strobeSent[pid]);
 
-	*/
 	
-		$display("pc[pid]: %x, op: %x", pc[pid], op);
+	
+	//	$display("pc[pid]: %x, op: %x", pc[pid], op);
 		
 		if( !ld && !ldSt ) begin
 			if(s2op == `LOAD) begin
@@ -215,12 +218,15 @@ module processor(halt, reset, clk);
 				if( !strobeSent[pid] ) begin
 					/* CHECK CACHE FOR ADDRESS FOR INSTRUCTION BEFORE REQUESTING INSTRUCTION FROM MEMORY */
 					for(i = 0; i < `CACHE_SIZE; i = i + 1) begin	
-						if(instrCache[i]`CACHE_ADDR == pc[pid] &&
-						   instrCache[i]`CACHE_VALID_BIT == `VALID) begin
-							$display("Valid instruction cache hit");
+						if(instrCache[i]`CACHE_ADDR == pc[pid]     &&
+						   instrCache[i]`CACHE_VALID_BIT == `VALID &&
+						   instrCache[i]`CACHE_VALID_BIT == `NOT_DIRTY) begin
+						   
+							$display("Valid instruction cache hit\ndata: %x, addr: %x, pc[pid]:%x", instrCache[i]`CACHE_DATA, instrCache[i]`CACHE_ADDR, pc[pid]);
 							cacheHit = `TRUE;
 							ir[pid] <= instrCache[i]`CACHE_DATA;
 							i = `CACHE_SIZE;
+							getInstrPid <= !getInstrPid;
 						end
 						else begin
 							cacheHit = `FALSE;
@@ -241,7 +247,6 @@ module processor(halt, reset, clk);
 				end // PREFETCH
 				else if(strobeSent == 2'b00    && 
 					ld         == `FALSE   && 
-					strobe     == `FALSE   &&
 					s2op       != `OPLoad  &&
 					s2op	   != `OPStore) begin
 						
@@ -254,10 +259,12 @@ module processor(halt, reset, clk);
 			else if( !halts[!pid] && (getInstrPid == !pid) && mfc ) begin
 				ir[!pid] <= rdata; strobeSent[!pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction
 				/* PLACE NEW ADDRESS & INSTRUCTION INTO CACHE */
-				instrCache[addrOut]`CACHE_VALID_BIT <= `VALID;
-				instrCache[addrOut]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
-				instrCache[addrOut]`CACHE_ADDR	    <= addrOut;
-				instrCache[addrOut]`CACHE_DATA	    <= rdata;
+				instrCache[instrCacheIndex]`CACHE_VALID_BIT <= `VALID;
+				instrCache[instrCacheIndex]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				instrCache[instrCacheIndex]`CACHE_ADDR	    = addrOut;
+				$display("cacheAddr gets: %x, addrOut: %x, pid:%d", instrCache[instrCacheIndex]`CACHE_ADDR, addrOut, pid);
+				instrCache[instrCacheIndex]`CACHE_DATA	    = rdata;
+				instrCacheIndex <= ( (instrCacheIndex + 1)%`CACHE_SIZE );
 			end
 			else if(ir[pid] == `OPSys) begin   end			 // allow Sys call to propagate by not changing ir
 			else begin
@@ -269,10 +276,11 @@ module processor(halt, reset, clk);
 			if(mfc) begin
 				r[ldReg] <= rdata; ld <= `FALSE; strobeSent <= 2'b00;
 				// loaded from memory, insert {valid,dirty,addr,data} into data cache block
-				dataCache[addrOut]`CACHE_VALID_BIT <= `VALID;
-				dataCache[addrOut]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
-				dataCache[addrOut]`CACHE_ADDR 	   <= addrOut;
-				dataCache[addrOut]`CACHE_DATA	   <= rdata;
+				dataCache[dataCacheIndex]`CACHE_VALID_BIT <= `VALID;
+				dataCache[dataCacheIndex]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				dataCache[dataCacheIndex]`CACHE_ADDR 	   <= addrOut;
+				dataCache[dataCacheIndex]`CACHE_DATA	   <= rdata;
+				dataCacheIndex <= ( (dataCacheIndex + 1)%`CACHE_SIZE );
 			end
 			strobe <= 0; ir[pid] <= `INSTWAIT; ldSt <= `FALSE; strobeSent <= 2'b00;
 		end
@@ -292,10 +300,7 @@ module processor(halt, reset, clk);
 	  // This case statement sets immed register, accounting for pre
 	  case (op)
 	    `OPPre: begin
-	      pre[pid] <= ir[pid] `PRE;
-	      preset[pid] <= 1;
-	      immed = ir[pid] `Immed;
-	    end
+	      pre[pid] <= pc[pid][15:12]; preset[pid] <= 1; immed = ir[pid] `Immed; end
 	    `OPCall,
 	    `OPJump,
 	    `OPJumpF,
@@ -445,9 +450,6 @@ module slowmem(mfc, rdata, addrOut, pend, addr, wdata, rnotw, strobe, clk);
 	initial begin
 	  pend <= 0;
 	  $readmemh0(m); // for running in icarus cgi interface
-	  // $readmemh("./../Test\ Modules/storeProg1.vmem",m); // for running in iverilog
-	  // $readmemh("./../Test\ Modules/testProg1.vmem",m);
-	  // $readmemh("./../Test\ Modules/loadProg1.vmem", m);
 	end
 
 	always @(posedge clk) begin
@@ -501,8 +503,7 @@ module testbench;
 	reg [31:0] count;
 	processor PE(halted, reset, clk);
 	initial begin
-	  $dumpfile("dump.txt"); // for running in iverilog
-	  //$dumpfile; // for running in icarus cgi interface
+		$dumpfile; // for running in icarus cgi interface  $dumpfile("dump.txt"); // for running in iverilog
 	  $dumpvars(0, PE);
 	  #10 reset = 1;
 	  #10 reset = 0;
