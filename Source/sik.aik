@@ -5,7 +5,7 @@
 .alias .TWELVEBIT 8 Get Pop Put
 
 .SIXTEENBIT .a ?((. & 0xf000) == (.a & 0xf000)) := .this:4 .a:12
-.SIXTEENBIT .a := 14:4 (.a >> 12):12 .this:4 .a:12
+.SIXTEENBIT .a := 0xb:4 (.a >> 12):12 .this:4 .a:12
 .alias .SIXTEENBIT 1 Push 4 Call JumpF Jump JumpT  
 
 Pre .a := 0xb:4 (.a >> 12):12
