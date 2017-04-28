@@ -348,7 +348,7 @@ module processor(halt, reset, clk);
 	    `OPOr,
 	    `OPXor,
 	    `OPStore:
-	      begin s1d <= sp[!pid]-1; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]-1; end
+	      begin s1d <= sp[!pid]-1; s1s <= sp[!pid]; if( (sp[!pid]) > 1 )begin sp[!pid] <= sp[!pid]-1; end  end
 	    `OPTest:
 	      begin s1d <= `NOREG; s1s <= sp[!pid]; if( (sp[!pid]) > 1 )begin sp[!pid] <= sp[!pid]-1; end end
 	    `OPDup:
@@ -366,7 +366,7 @@ module processor(halt, reset, clk);
 	    `OPPut:
 	      begin s1d <= sp[!pid]-(s0immed `REGNUM); s1s <= sp[!pid]; end
 	    `OPPop:
-	      begin s1d <= `NOREG; s1s <= `NOREG; sp[!pid] <= sp[!pid]-(s0immed `REGNUM); end
+	      begin s1d <= `NOREG; s1s <= `NOREG; if( (sp[!pid]-(s0immed `REGNUM)) >= 1 )begin sp[!pid] <= sp[!pid]-(s0immed `REGNUM); end else begin sp[!pid] <= 1; end end
 	    default:
 	      begin s1d <= `NOREG; s1s <= `NOREG; end // not a register operation
 	  endcase
