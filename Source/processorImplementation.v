@@ -9,7 +9,7 @@
 	   - Valid === If something from memory has been put into the cache line
 	   - Dirty === When CPU writes to the memory, but the cache contains old, obsolete data
 	   - Not Dirty === When memory writes to the cache
-	   - Cache line will be composed of the following: {1 valid bit, 1 dirty bit, 16 main mem address bits, 16 data/instr bits} cache [7:0] (index bits)
+	   - Cache line will be composed of the following: {1 valid bit, 1 dirty bit, 16 main mem address bits, 16 data/instr bits} [33:0] cache [7:0] (index bits)
 	   - As things are retrieved from memory, place them into the ir[pid] AND into the cache
 	   - Instruction cache is ALWAYS clean
 	   - Data cache on the other hand, is not
@@ -31,10 +31,10 @@
 
 // cache sizes and locations
 `define CACHE_SIZE 	  8
-`define CACHE_LINE_SIZE  16				// valid, dirty bit, instr/data addr
+`define CACHE_BLOCK_SIZE  34				// valid, dirty bit, instr/data addr
 
 `define CACHE_ELEMENTS	  [`CACHE_SIZE-1:0]	
-`define CACHE_LINE	  	  [`CACHE_LINE_SIZE-1:0]	// [15:0] {valid, dirty, addr, instr/data}
+`define CACHE_BLOCK	  	  [`CACHE_BLOCK_SIZE-1:0]	// [15:0] {valid, dirty, addr, instr/data}
 
 `define CACHE_DATA 	  	  [15:0]
 `define CACHE_ADDR 	  	  [31:16]
@@ -129,8 +129,8 @@ module processor(halt, reset, clk);
 	reg  `WORD	  i;
 	
 	// Cache Objects
-	reg  `CACHE_LINE instrCache `CACHE_ELEMENTS; 	    // [33:0] cache [7:0]
-	reg  `CACHE_LINE dataCache  `CACHE_ELEMENTS; 	    // [33:0] cache [7:0]
+	reg  `CACHE_BLOCK instrCache `CACHE_ELEMENTS; 	    // [33:0] cache [7:0]
+	reg  `CACHE_BLOCK dataCache  `CACHE_ELEMENTS; 	    // [33:0] cache [7:0]
 	reg  `CACHE_ELEMENTS	instrCacheIndex, dataCacheIndex;  // [7:0] cacheIndex
 	
 	reg               cacheHit, cacheDirty;
@@ -154,6 +154,7 @@ module processor(halt, reset, clk);
 	  ir[1] 	<= `INSTWAIT;
 	  ld 		<= `FALSE;
 	  ldSt 		<= `FALSE;
+	  cacheHit <= `FALSE;
 	  
 	  // Data/Instr. Cache initialization
 	  for(i = 0; i < `CACHE_SIZE; i = i + 1) begin
@@ -166,10 +167,8 @@ module processor(halt, reset, clk);
 		instrCache[i][31:0]  <= 32'hxxxxxxxx;	// cache addr/data/instr set to garbage
 		dataCache [i][31:0]  <= 32'hxxxxxxxx;				
 	  end
-	  instrCacheIndex <= 0;
-	  dataCacheIndex <= 0;
-	end // end reset block
-	
+	 end // end reset block
+	  	
 	// instantiate memory module
 	// I: addr, wdata, rnotw, strobe, clk
 	// O: mfc, rdata
@@ -181,16 +180,13 @@ module processor(halt, reset, clk);
 	// (s (0.5) )
 	always@(posedge clk) begin
 		pid <= !pid;
-	 
-	// $display("pid: %d, pc[pid]: %x, ir: %x, getInstrPid: %d, strobe: %d, addr: %x, pend: %d, rdata: %x, mfc: %d, strobeSent[pid]: %d, torf[pid]: %d, preset[pid]: %d", pid, pc[pid], ir[pid], getInstrPid, strobe, addr, pend, rdata, mfc, strobeSent[pid], torf[pid], preset[pid]);
-		$display("pc[pid]: %x, op: %x, torf[pid]: %d, sp[pid]: %x, mfc: %d, rdata: %x", pc[pid], op, torf[pid], sp[pid], mfc, rdata);
-		
+	 //$display("pc: %x, strobeSent: %d, rdata: %x, addrOut: %x,  ld: %d, ldSt:%d, torf: %d, r: %x", pc[pid], strobeSent[pid], rdata, addrOut, ld, ldSt, torf[pid], r[{pid,sp[pid]}]);
 		if( !ld && !ldSt ) begin
 			if(s2op == `LOAD) begin
 				/* NOTE: have raddr from memory module output for storage in cache block */
 				/*  CHECK CACHE FOR DATA HERE AND IN s2 SIMULTANEOUSY */
 				// IF s2sv, i.e. the target address is in the data cache
-			 	if(cacheHit) begin
+		 		if(cacheHit) begin
 					ld <= `FALSE; strobeSent <= `FALSE; strobe <= `FALSE;
 					ir[pid] <= `INSTWAIT;
 				end // cache miss, load request
@@ -211,8 +207,7 @@ module processor(halt, reset, clk);
 					dataCache[s2dv]`CACHE_VALID_BIT = `VALID;
 				end
 			end
-			else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT  && !ld && !ldSt ) begin
-				// No load instruction request sent
+			else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT  && !ld && !ldSt ) begin				
 				if( !strobeSent[pid] ) begin
 					/* CHECK CACHE FOR ADDRESS FOR INSTRUCTION BEFORE REQUESTING INSTRUCTION FROM MEMORY */
 					// determine if a cache hit or not
@@ -220,21 +215,16 @@ module processor(halt, reset, clk);
 						if(instrCache[i]`CACHE_ADDR == pc[pid] &&
 						   instrCache[i]`CACHE_VALID_BIT == `VALID) begin
 						   			
-						   cacheHit = `TRUE;
-						   ir[pid] <= instrCache[i]`CACHE_DATA;
-						   i = `CACHE_SIZE; // break statement
+							cacheHit = `TRUE;
+							ir[pid] <= instrCache[i]`CACHE_DATA;
+							i = `CACHE_SIZE; // break statement
 						end
-						else begin
+						else begin						
 							cacheHit = `FALSE;
 						end
 					end
-					if(cacheHit) begin
-						$display("Instruction Cache HIT!");
-						strobe <= `FALSE; strobeSent[pid] <= `FALSE;
-					end
-					else begin
-						$display("No instruction Cache hit.");
-						strobe <= `TRUE; rnotw <= `READ; strobeSent[pid] <= `TRUE; addr <= pc[pid]; // send new load request
+					if(cacheHit) begin strobe <= `FALSE; strobeSent[pid] <= `FALSE; end
+					else begin strobe <= `TRUE; rnotw <= `READ; strobeSent[pid] <= `TRUE; addr <= pc[pid]; // send new load request
 					end
 				end // load request sent, need to cancel strobe
 				else if( (strobeSent[pid] || strobeSent[!pid])  && !mfc ) begin
@@ -242,11 +232,11 @@ module processor(halt, reset, clk);
 				end
 				else if( strobeSent[pid] && mfc ) begin
 					ir[pid] <= rdata; strobeSent[pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction
-				end // PREFETCH
-				else if(strobeSent == 2'b00    && 
-					ld         == `FALSE   && 
-					s2op       != `OPLoad  &&
-					s2op	   != `OPStore) begin
+				end // PREFETCH	
+				else if(strobeSent == 2'b00   && 
+						ld         == `FALSE  && 
+						s2op       != `OPLoad &&
+						s2op	   != `OPStore) begin
 						
 					$display("PREFETCHING!!!");
 				end
@@ -255,12 +245,12 @@ module processor(halt, reset, clk);
 				end
 			end
 			else if( !halts[!pid] && (getInstrPid == !pid) && mfc ) begin
-				ir[!pid] <= rdata; strobeSent[!pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction
-				/* PLACE NEW INSTRUCTION ENTRY INTO CACHE */
-				instrCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `VALID;
-				instrCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `NOT_DIRTY;
-				instrCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `addrOut;
-				instrCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `rdata;
+				ir[!pid] <= rdata; strobeSent[!pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction				
+						/* PLACE NEW INSTRUCTION ENTRY INTO CACHE */
+				instrCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_VALID_BIT <= `VALID;
+				instrCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				instrCache[{!pid, addrOut[`CACHE_SIZE-2]}]`CACHE_ADDR        <= addrOut;
+				instrCache[{!pid, addrOut[`CACHE_SIZE-2]}]`CACHE_DATA        <= rdata;
 			end
 			else if(ir[pid] == `OPSys) begin
 				getInstrPid <= !pid;
@@ -274,13 +264,13 @@ module processor(halt, reset, clk);
 		end // turn off strobe, tell ir to wait, look for mfc for load instr, turn off flags when appropriate
 		else begin
 			// handles loads		
-			if(mfc) begin
-				r[ldReg] <= rdata; ld <= `FALSE; strobeSent <= 2'b00;
+			if(mfc) begin 
+				r[ldReg] <= rdata; ld <= `FALSE; strobeSent <= 2'b00; 
 				// loaded data from memory, insert into data cache block
-				dataCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `VALID;
-				dataCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `NOT_DIRTY;
-				dataCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `addrOut;
-				dataCache[{!pid, (`CACHE_SIZE-1)'h addrOut}]`CACHE_VALID_BIT <= `rdata;
+				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_VALID_BIT <= `VALID;
+				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_ADDR      <= addrOut;
+				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DATA      <= rdata;
 			end
 			strobe <= 0; ir[pid] <= `INSTWAIT; ldSt <= `FALSE; strobeSent <= 2'b00;
 		end
@@ -305,11 +295,11 @@ module processor(halt, reset, clk);
 	    `OPJump,
 	    `OPJumpF,
 	    `OPJumpT: begin
-		    if (preset[pid]) begin immed = {pre[pid], ir[pid] `Immed}; preset[pid] <= 0; $display("immed: %x", {pc[pid][15:12], ir[pid] `Immed}); end
-		  else begin immed <= {pc[pid][15:12], ir[pid] `Immed}; $display("immed1: %x, pre[pid]: %x", {pc[pid][14:12], ir[pid] `Immed}, pre[pid]); end
+		    if (preset[pid]) begin immed = {pre[pid], ir[pid]`Immed}; preset[pid] <= 0;end //$display("immed: %x, pre: %d", immed, pre[pid]); end
+		  else begin immed = {pc[pid][15:12], ir[pid] `Immed}; end //$display("immed1: %x", immed); end
 	    end
 	    `OPPush: begin
-		    if (preset[pid]) begin immed = {pre[pid], ir[pid] `Immed}; end
+		    if (preset[pid]) begin immed = {pre[pid], ir[pid] `Immed}; preset[pid]<=0; end
 		    else begin immed = {{4{ir[pid][11]}}, ir[pid] `Immed}; end
 	    end
 	    default:
@@ -318,18 +308,20 @@ module processor(halt, reset, clk);
 
 	  // This case statement sets s0immed, pc, s0op, halt
 	  case (op)
-	    `OPPre: begin s0op <= `OPNOP; pc[pid] <= pc[pid] + 1; end
+	    `OPPre: begin s0op <= `OPNOP; pc[pid] <= pc[pid] + 1; end//$display("PRE"); end
 	    `OPCall: begin s0immed <= pc[pid] + 1; pc[pid] <= immed; s0op <= `OPCall; end
-	    `OPJump: begin pc[pid] <= immed; s0op <= `OPNOP; end
+	    `OPJump: begin pc[pid] <= immed; s0op <= `OPNOP; end //$display("immed Jump: %x", immed); end
 	    `OPJumpF: begin
 		    if (teststall == 0) begin pc[pid] <= (torf[pid] ? (pc[pid] + 1) : immed); end
-	      	else begin pc[pid] <= pc[pid] + 1; end
+	      	    else begin pc[pid] <= pc[pid] + 1; end
 	        s0op <= `OPNOP;
+		//$display("JUMPF");
 	    end
 	    `OPJumpT: begin
-	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1));	end
-	      else begin pc[pid] <= pc[pid] + 1; end
+	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1)); $display("pc: %x, immed: %x, r[0]: %x, sp: %x", pc[pid], immed, r[1], sp[pid]);	end
+	      else begin pc[pid] <= pc[pid] + 1; $display("pc: %x, sp: %x", pc[pid], sp[pid]); end
 	      s0op <= `OPNOP;
+	      $display("JUMPT");
 	    end
 	    `OPRet: begin
 		   if (retstall) begin s0op <= `OPNOP; end
@@ -337,10 +329,10 @@ module processor(halt, reset, clk);
 		   else begin s0op <= op; end
 	    end
 	    `OPSys: begin s0op <= `OPNOP; halts[pid] <= ((s0op == `OPNOP) && (s1op == `OPNOP) && (s2op == `OPNOP));
-	      $display("s0op: %x, s1op: %x, s2op: %x", s0op, s1op, s2op); // show the sys call propagate through the pipeline
+	     // $display("s0op: %x, s1op: %x, s2op: %x", s0op, s1op, s2op); // show the sys call propagate through the pipeline
 	    end
-	    `OPINSTWAIT: begin s0op <= op; s0immed <= immed; end
-	    default: begin s0op <= op; s0immed <= immed; pc[pid] <= pc[pid] + 1; end
+	    `OPINSTWAIT: begin s0op <= op; s0immed <= immed; end//$display("INSTWAIT."); end
+	    default: begin s0op <= op; s0immed <= immed; pc[pid] <= pc[pid] + 1; end//$display("HERE in op default."); end
 	  endcase
 	end
 
@@ -358,7 +350,7 @@ module processor(halt, reset, clk);
 	    `OPStore:
 	      begin s1d <= sp[!pid]-1; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]-1; end
 	    `OPTest:
-	      begin s1d <= `NOREG; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]-1; end
+	      begin s1d <= `NOREG; s1s <= sp[!pid]; if( (sp[!pid]) > 1 )begin sp[!pid] <= sp[!pid]-1; end end
 	    `OPDup:
 	      begin s1d <= sp[!pid]+1; s1s <= sp[!pid]; sp[!pid] <= sp[!pid]+1; end
 	    `OPLoad:
@@ -396,14 +388,14 @@ module processor(halt, reset, clk);
 	  case (s2op)
 	    `OPAdd: begin r[{!pid, s2d}] <= s2dv + s2sv; end
 	    `OPSub: begin r[{!pid, s2d}] <= s2dv - s2sv; end
-	    `OPTest: begin torf[!pid] <= ((s2sv&16'h0x0fff) != 0); end
+	    `OPTest: begin torf[!pid] <= ((s2sv & 16'h0fff) != 0); $display("s2sv, i.e. r[{pid,s1d}]",s2sv); end
 	    `OPLt: begin r[{!pid, s2d}] <= (s2dv < s2sv); end
 	    `OPDup: begin r[{!pid, s2d}] <= s2sv; end
 	    `OPAnd: begin r[{!pid, s2d}] <= s2dv & s2sv; end
 	    `OPOr: begin r[{!pid, s2d}] <= s2dv | s2sv; end
 	    `OPXor: begin r[{!pid, s2d}] <= s2dv ^ s2sv; end
-	    `OPLoad: begin
-			// Determine if ther'es a cache hit
+	    `OPLoad: begin 
+			// Determine if there's a cache hit
 			for(i = 0; i < `CACHE_SIZE; i = i + 1) begin
 				if(s2sv == dataCache[i]`CACHE_ADDR &&
 				   dataCache[i]`CACHE_VALID_BIT == `VALID &&
@@ -411,19 +403,20 @@ module processor(halt, reset, clk);
 				   
 				   cacheHit = `TRUE;
 				   r[{!pid, s2d}] = dataCache[i]`CACHE_DATA;
-				   i = `CACHE_SIZE;
+				   i = `CACHE_SIZE; // break statement
 				end
 			end
 			if(cacheHit) begin
 				$display("s2 DATA cache hit!");
-			end // cache miss, load request
+			end // cache miss, need load request
 			else begin
-				addr <= s2sv; ldReg <= {!pid, s2d}; 
+				addr <= s2sv; ldReg <= {!pid, s2d};
 			end
-	    end // strobe, strobeSent, rnotw set in s0
-	    `OPStore: begin
-				/* CHECK IF CACHE IS DIRTY DUE TO STORING AT THIS ADDRESS, AND UPDATE DATA CACHE IF SO */
-				 addr <= s2dv; wdata <= s2sv; end 	   // strobe, strobeSent, rnotw set in s0
+		end // strobe, strobeSent, rnotw set in s0
+	    `OPStore: begin 
+			/* CHECK IF CACHE IS DIRTY DUE TO STORING AT THIS ADDRESS, AND UPDATE DATA CACHE IF SO */
+			addr <= s2dv; wdata <= s2sv; 
+		end 	   // strobe, strobeSent, rnotw set in s0
 	    `OPPush,
 	    `OPCall: begin r[{!pid, s2d}] <= (s2immed); end
 	    `OPGet,
@@ -446,7 +439,8 @@ module slowmem(mfc, rdata, addrOut, pend, addr, wdata, rnotw, strobe, clk);
 
 	initial begin
 	  pend <= 0;
-	  $readmemh0(m); // for running in icarus cgi interface
+	  //$readmemh0(m); // for running in icarus cgi interface
+	  $readmemh("./testModules/testProg1.vmem",m);
 	end
 
 	always @(posedge clk) begin
@@ -500,12 +494,13 @@ module testbench;
 	reg [31:0] count;
 	processor PE(halted, reset, clk);
 	initial begin
-	  $dumpfile; // for running in icarus cgi interface
+	 // $dumpfile; // for running in icarus cgi interface
+	  $dumpfile("dump.txt"); // for running in icarus cgi interface
 	  $dumpvars(0, PE);
 	  #10 reset = 1;
 	  #10 reset = 0;
 	  count = 0; // just in case
-	  while (!halted && (count < 500) ) begin
+	  while (!halted && (count < 750) ) begin
 	    #10 clk = 1;
 	    #10 clk = 0;
 	    count = count + 1;
