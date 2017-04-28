@@ -6,7 +6,7 @@
 
 .SIXTEENBIT .a ?((. & 0xf000) == (.a & 0xf000)) := .this:4 .a:12
 .SIXTEENBIT .a := 0xb:4 (.a >> 12):12 .this:4 .a:12
-.alias .SIXTEENBIT 1 Push 4 Call JumpF Jump JumpT  
+.alias .SIXTEENBIT 1 Push 4 Call Jump JumpF JumpT  
 
 Pre .a := 0xb:4 (.a >> 12):12
 .segment .text 16 0x1000000 0x0000 .VMEM
