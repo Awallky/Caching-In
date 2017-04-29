@@ -9,7 +9,9 @@
 	   - Valid === If something from memory has been put into the cache line
 	   - Dirty === When CPU writes to the memory, but the cache contains old, obsolete data
 	   - Not Dirty === When memory writes to the cache
-	   - Cache line will be composed of the following: {1 valid bit, 1 dirty bit, 16 main mem address bits, 16 data/instr bits} [33:0] cache [7:0] (index bits)
+	   - Cache block will be composed of the following: 
+		 {1 valid bit, 1 dirty bit, 16 main mem address bits, 16 data/instr bits} , i.e.
+		 [33:0] cache [7:0] (index bits)
 	   - As things are retrieved from memory, place them into the ir[pid] AND into the cache
 	   - Instruction cache is ALWAYS clean
 	   - Data cache on the other hand, is not
@@ -134,6 +136,9 @@ module processor(halt, reset, clk);
 	reg  `CACHE_ELEMENTS	instrCacheIndex, dataCacheIndex;  // [7:0] cacheIndex
 	
 	reg               cacheHit, cacheDirty;
+	reg 			  prefetch, badFetch;
+	reg `WORD		  prefetchAddr;
+	reg `BYTE 		  cSize = `CACHE_SIZE/2;
 
 
 	always @(posedge reset) begin
@@ -154,7 +159,11 @@ module processor(halt, reset, clk);
 	  ir[1] 	<= `INSTWAIT;
 	  ld 		<= `FALSE;
 	  ldSt 		<= `FALSE;
-	  cacheHit <= `FALSE;
+	  cacheHit  <= `FALSE;
+	  prefetch  <= `FALSE;
+	  badFetch  <= `TRUE;
+	  dataCacheIndex <= 0;
+	  instrCacheIndex <= 0;
 	  
 	  // Data/Instr. Cache initialization
 	  for(i = 0; i < `CACHE_SIZE; i = i + 1) begin
@@ -165,13 +174,13 @@ module processor(halt, reset, clk);
 		dataCache [i]`CACHE_VALID_BIT <= `NOT_VALID;
 		
 		instrCache[i][31:0]  <= 32'hxxxxxxxx;	// cache addr/data/instr set to garbage
-		dataCache [i][31:0]  <= 32'hxxxxxxxx;				
+		dataCache [i][31:0]  <= 32'hxxxxxxxx;
 	  end
 	 end // end reset block
 	  	
 	// instantiate memory module
 	// I: addr, wdata, rnotw, strobe, clk
-	// O: mfc, rdata
+	// O: mfc, rdata, addrOut
 	slowmem mem(.mfc(mfc), .rdata(rdata), .addrOut(addrOut), .pend(pend), .addr(addr), 
 		    .wdata(wdata), .rnotw(rnotw), .strobe(strobe), .clk(clk));
 	
@@ -180,12 +189,9 @@ module processor(halt, reset, clk);
 	// (s (0.5) )
 	always@(posedge clk) begin
 		pid <= !pid;
-	 //$display("pc: %x, strobeSent: %d, rdata: %x, addrOut: %x,  ld: %d, ldSt:%d, torf: %d, r: %x", pc[pid], strobeSent[pid], rdata, addrOut, ld, ldSt, torf[pid], r[{pid,sp[pid]}]);
+	 $display("pc: %x, ir: %x, strobeSent: %d, rdata: %x, addrOut: %x,  ld: %d, ldSt:%d, torf: %d, r: %x", pc[pid], ir[pid], strobeSent[pid], rdata, addrOut, ld, ldSt, torf[pid], r[{pid,sp[pid]}]);
 		if( !ld && !ldSt ) begin
 			if(s2op == `LOAD) begin
-				/* NOTE: have raddr from memory module output for storage in cache block */
-				/*  CHECK CACHE FOR DATA HERE AND IN s2 SIMULTANEOUSY */
-				// IF s2sv, i.e. the target address is in the data cache
 		 		if(cacheHit) begin
 					ld <= `FALSE; strobeSent <= `FALSE; strobe <= `FALSE;
 					ir[pid] <= `INSTWAIT;
@@ -202,30 +208,62 @@ module processor(halt, reset, clk);
 		 		strobe <= `TRUE; rnotw <= `WRITE; 				 	// store request
 				if(cacheDirty) begin
 					$display("Cache Dirty");
-					dataCache[s2dv]`CACHE_DATA		= s2sv; // write through to cache
-					dataCache[s2dv]`CACHE_DIRTY_BIT = `NOT_DIRTY;
-					dataCache[s2dv]`CACHE_VALID_BIT = `VALID;
+					if(pid) begin
+						dataCache[dataCacheIndex]`CACHE_DATA	  <= s2sv; // write through to cache
+						dataCache[dataCacheIndex]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+						dataCache[dataCacheIndex]`CACHE_VALID_BIT <= `VALID;
+						dataCacheIndex <= (dataCacheIndex + 1)%`CACHE_SIZE;						
+					end
 				end
 			end
-			else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT  && !ld && !ldSt ) begin				
+			else if( pid == getInstrPid &&  !halts[pid] && ir[pid] == `INSTWAIT  && !ld && !ldSt && !prefetch ) begin
 				if( !strobeSent[pid] ) begin
 					/* CHECK CACHE FOR ADDRESS FOR INSTRUCTION BEFORE REQUESTING INSTRUCTION FROM MEMORY */
 					// determine if a cache hit or not
 					for(i = 0; i < `CACHE_SIZE; i = i + 1) begin
 						if(instrCache[i]`CACHE_ADDR == pc[pid] &&
-						   instrCache[i]`CACHE_VALID_BIT == `VALID) begin
-						   			
+						   instrCache[i]`CACHE_VALID_BIT == `VALID) begin						   			
 							cacheHit = `TRUE;
-							ir[pid] <= instrCache[i]`CACHE_DATA;
 							i = `CACHE_SIZE; // break statement
 						end
-						else begin						
+						else begin	
 							cacheHit = `FALSE;
 						end
 					end
-					if(cacheHit) begin strobe <= `FALSE; strobeSent[pid] <= `FALSE; end
-					else begin strobe <= `TRUE; rnotw <= `READ; strobeSent[pid] <= `TRUE; addr <= pc[pid]; // send new load request
-					end
+					if(cacheHit) begin strobe <= `FALSE; strobeSent[pid] <= `FALSE; ir[pid] <= instrCache[(pc[pid])]`CACHE_DATA; end
+					else begin strobe <= `TRUE; rnotw <= `READ; strobeSent[pid] <= `TRUE; addr <= pc[pid]; end// send new load request
+				end // load request sent, need to cancel strobe
+				else if( (strobeSent[pid] || strobeSent[!pid])  && !mfc ) begin
+					strobe <= `FALSE; // wait for the instruction, turn off new load request
+				end
+				else if( strobeSent[pid] && mfc ) begin
+					ir[pid] <= rdata; strobeSent[pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction
+				end // PREFETCH	
+				else if(strobeSent == 2'b00    && 
+						ld         == `FALSE   && 
+						s2op       != `OPLoad  &&
+						s2op	   != `OPStore &&
+						pid        == getInstrPid) begin
+						// If no instruction load requests have been made,
+						// no store requests have been made, and no loads or
+						// stores are about to be made, make a prefetch request
+						// and the pid has load instruction request permissions
+						$display("PREFETCH");
+						strobe <= `TRUE; strobeSent[pid] <= `TRUE; rnotw <= `READ; addr <= (pc[pid] + 1); 
+						prefetch <= `TRUE; prefetchAddr <= (pc[pid]+1); ir[pid] <= `INSTWAIT;						
+				end 
+				else begin
+					$display("No IDEA how we got here.");
+				end
+			end
+			else if( (!pid == getInstrPid &&  !halts[!pid] && ir[!pid] == `INSTWAIT  && !ld && !ldSt) && prefetch ) begin
+				if(prefetchAddr != pc[!pid])begin badFetch = `TRUE; end
+				else begin badFetch = `FALSE; end
+				if(badFetch) begin 
+					strobe <= `TRUE; rnotw <= `READ; addr <= pc[!pid];
+				end
+				if( !strobeSent[pid] ) begin
+				
 				end // load request sent, need to cancel strobe
 				else if( (strobeSent[pid] || strobeSent[!pid])  && !mfc ) begin
 					strobe <= `FALSE; // wait for the instruction, turn off new load request
@@ -237,9 +275,19 @@ module processor(halt, reset, clk);
 						ld         == `FALSE  && 
 						s2op       != `OPLoad &&
 						s2op	   != `OPStore) begin
+						// If no instruction load requests have been made,
+						// no store requests have been made, and no loads or
+						// stores are about to be made, make a prefetch request
+						// and the pid has load instruction request permissions
+						$display("PREFETCH");
+						if( ir[pid] != `OPJump && ir[pid] != `OPJumpT && ir[pid] != `OPJumpF && ir[pid] != `OPCall && ir[pid] != `OPSys && pid == getInstrPid) begin
+							strobe <= 1; strobeSent[pid] <= 1; rnotw <= 1; addr <= (pc[pid] + 1); 
+							prefetch <= 1; prefetchAddr <= (pc[pid]+1); ir[pid] <= `INSTWAIT;
+						end
+						else begin
 						
-					$display("PREFETCHING!!!");
-				end
+						end
+				end 
 				else begin
 					$display("No IDEA how we got here.");
 				end
@@ -247,10 +295,11 @@ module processor(halt, reset, clk);
 			else if( !halts[!pid] && (getInstrPid == !pid) && mfc ) begin
 				ir[!pid] <= rdata; strobeSent[!pid] <= `FALSE; getInstrPid <= !getInstrPid; // toggle to allow the other process to request an instruction				
 						/* PLACE NEW INSTRUCTION ENTRY INTO CACHE */
-				instrCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_VALID_BIT <= `VALID;
-				instrCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
-				instrCache[{!pid, addrOut[`CACHE_SIZE-2]}]`CACHE_ADDR        <= addrOut;
-				instrCache[{!pid, addrOut[`CACHE_SIZE-2]}]`CACHE_DATA        <= rdata;
+				instrCache[instrCacheIndex]`CACHE_VALID_BIT <= `VALID;
+				instrCache[instrCacheIndex]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				instrCache[instrCacheIndex]`CACHE_ADDR        <= addrOut;
+				instrCache[instrCacheIndex]`CACHE_DATA        <= rdata;
+				instrCacheIndex <= (instrCacheIndex + 1)%`CACHE_SIZE;
 			end
 			else if(ir[pid] == `OPSys) begin
 				getInstrPid <= !pid;
@@ -267,10 +316,11 @@ module processor(halt, reset, clk);
 			if(mfc) begin 
 				r[ldReg] <= rdata; ld <= `FALSE; strobeSent <= 2'b00; 
 				// loaded data from memory, insert into data cache block
-				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_VALID_BIT <= `VALID;
-				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
-				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_ADDR      <= addrOut;
-				dataCache[{!pid, addrOut[`CACHE_SIZE-2:0]}]`CACHE_DATA      <= rdata;
+				dataCache[dataCacheIndex]`CACHE_VALID_BIT <= `VALID;
+				dataCache[dataCacheIndex]`CACHE_DIRTY_BIT <= `NOT_DIRTY;
+				dataCache[dataCacheIndex]`CACHE_ADDR      <= addrOut;
+				dataCache[dataCacheIndex]`CACHE_DATA      <= rdata;
+				dataCacheIndex <= (dataCacheIndex + 1)%`CACHE_SIZE;
 			end
 			strobe <= 0; ir[pid] <= `INSTWAIT; ldSt <= `FALSE; strobeSent <= 2'b00;
 		end
@@ -318,10 +368,10 @@ module processor(halt, reset, clk);
 		//$display("JUMPF");
 	    end
 	    `OPJumpT: begin
-	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1)); $display("pc: %x, immed: %x, r[0]: %x, sp: %x", pc[pid], immed, r[1], sp[pid]);	end
+	      if (teststall == 0) begin	pc[pid] <= (torf[pid] ? immed : (pc[pid] + 1)); end//$display("pc: %x, immed: %x, r[0]: %x, sp: %x", pc[pid], immed, r[1], sp[pid]);	end
 	      else begin pc[pid] <= pc[pid] + 1; $display("pc: %x, sp: %x", pc[pid], sp[pid]); end
 	      s0op <= `OPNOP;
-	      $display("JUMPT");
+	      //$display("JUMPT");
 	    end
 	    `OPRet: begin
 		   if (retstall) begin s0op <= `OPNOP; end
@@ -388,7 +438,7 @@ module processor(halt, reset, clk);
 	  case (s2op)
 	    `OPAdd: begin r[{!pid, s2d}] <= s2dv + s2sv; end
 	    `OPSub: begin r[{!pid, s2d}] <= s2dv - s2sv; end
-	    `OPTest: begin torf[!pid] <= ((s2sv & 16'h0fff) != 0); $display("s2sv, i.e. r[{pid,s1d}]",s2sv); end
+	    `OPTest: begin torf[!pid] <= ((s2sv & 16'h0fff) != 0); end //$display("s2sv, i.e. r[{pid,s1d}]",s2sv); end
 	    `OPLt: begin r[{!pid, s2d}] <= (s2dv < s2sv); end
 	    `OPDup: begin r[{!pid, s2d}] <= s2sv; end
 	    `OPAnd: begin r[{!pid, s2d}] <= s2dv & s2sv; end
@@ -400,9 +450,8 @@ module processor(halt, reset, clk);
 				if(s2sv == dataCache[i]`CACHE_ADDR &&
 				   dataCache[i]`CACHE_VALID_BIT == `VALID &&
 				   dataCache[i]`CACHE_DIRTY_BIT == `NOT_DIRTY) begin
-				   
 				   cacheHit = `TRUE;
-				   r[{!pid, s2d}] = dataCache[i]`CACHE_DATA;
+				   r[{!pid, s2d}] <= dataCache[i]`CACHE_DATA;
 				   i = `CACHE_SIZE; // break statement
 				end
 			end
@@ -414,7 +463,17 @@ module processor(halt, reset, clk);
 			end
 		end // strobe, strobeSent, rnotw set in s0
 	    `OPStore: begin 
-			/* CHECK IF CACHE IS DIRTY DUE TO STORING AT THIS ADDRESS, AND UPDATE DATA CACHE IF SO */
+			/* CHECK IF CACHE IS DIRTY DUE TO DATA IN CACHE AND DATA IN MEMORY  */
+			// if the address is found in the cache & is valid, it is dirty, will update the cache
+			// WRITE BACK METHOD
+			for(i = 0; i < `CACHE_SIZE; i = i + 1) begin
+				if(s2sv == dataCache[i]`CACHE_ADDR &&
+				   dataCache[i]`CACHE_VALID_BIT == `VALID) begin				   
+				   cacheDirty = `TRUE;
+				   dataCache[i]`CACHE_DATA <= s2sv; // write back to cache 
+				   i = `CACHE_SIZE; // break statement
+				end
+			end
 			addr <= s2dv; wdata <= s2sv; 
 		end 	   // strobe, strobeSent, rnotw set in s0
 	    `OPPush,
