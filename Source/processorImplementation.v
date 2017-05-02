@@ -3,9 +3,7 @@
 	- Modified by Adam Walls, Seifalla Moustafa, Austin Langton
 	- Implements a hyperthreaded, 5-stage pipelined processor 
 	  with a direct-mapped cache implementation and a memory module 
-	  simulating a delay in loading data from main memory. The 
-	  location for the next cahce entry is tracked by a register that points to it. 
-	  Whenever a new cache entry is made, it increments by one modulo cache size. 
+	  simulating a delay in loading data from main memory. 
 
 	***Notes about cache:
 	   - Valid === If something from memory has been put into the cache line
