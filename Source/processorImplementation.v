@@ -602,7 +602,7 @@ module testbench;
 	  #10 reset = 1;
 	  #10 reset = 0;
 	  count = 0; // just in case
-	  while (!halted && (count < 750) ) begin
+		while (!halted && (count < 10000) ) begin
 	    #10 clk = 1;
 	    #10 clk = 0;
 	    count = count + 1;
