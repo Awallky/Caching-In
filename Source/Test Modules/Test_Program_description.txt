@@ -68,3 +68,21 @@ D: Push 1
    Pop  8
    Jump C
 
+storeProg.vmem Assembly instructions:
+
+.origin 0x0000
+   Push 1
+   Test
+   Add
+   Push 5
+   Store
+   Push 0
+   Sys
+.origin 0x8000
+   Push 1
+   Test
+   Add
+   Push 5
+   Store
+   Push 0
+   Sys
