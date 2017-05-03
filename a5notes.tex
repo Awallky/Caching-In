@@ -45,13 +45,13 @@ We also had to check for whether the other proccess's MFC is 1. If so, it will p
 Another issue we checked was making sure we did not overwrite a data load request. So, we used the signal ld(are we waiting on a data load?) and ldSt (for the store).  If we were waiting on one of those two, the next clk cycle we turn off the strobe signal to signify that we are now waiting on a memory operation to complete. If the procces saw ld or ldStr was high then it would check for MFC and update the destination register and set ld to low and set strobe sent to low. \\
 
 Some Stage 0.5 operations: \\
-\textbf {1)}toggle process id \\
-\textbf {2)}It also determines the strobe sent variable and the strobe signal. \\
-\textbf {3)}It will decide what to do with strobe, rnotw, addr(address of memory element you want to access), wdata, GetInstrPid and Instruction Register \\
+\textbf {1)} Toggle process id \\
+\textbf {2)} It also determines the strobe sent variable and the strobe signal. \\
+\textbf {3)} It will decide what to do with strobe, rnotw, addr(address of memory element you want to access), wdata, GetInstrPid and Instruction Register \\
 
 \section*{The Cache}
 
-Our Cache is a direct-mapped Cache. We split the caches in half so that each process got half of the cache space. For instructions, it takes the address associated with the programm counter and takes a modulo operation of the cache's capacity divided by 2 on the instruction's main memory address as the index into the cache. If it is process 0, it will be placed into the lower half of the cache. If it is process 1, it will be placed in the upper half of the cache. This prevents each processes instruction from being overwritten in the cache memory due to the direct-mapping implementation. For example with a cache size of 8 and instructions at memory addresses 0x0000 and 0x8000, the first instruction will be placed in the instruction cache index 0 while the other will have an instruction cache index of 4. 
+Our Cache is a direct-mapped Cache. We split the caches in half so that each process got half of the cache space. For instructions, it takes the address associated with the program counter and takes a modulo operation of the cache's capacity divided by 2 on the instruction's main memory address as the index into the cache. If it is process 0, it will be placed into the lower half of the cache. If it is process 1, it will be placed in the upper half of the cache. This prevents each processes instruction from being overwritten in the cache memory due to the direct-mapping implementation. For example with a cache size of 8 and instructions at memory addresses 0x0000 and 0x8000, the first instruction will be placed in the instruction cache index 0 while the other will have an instruction cache index of 4. 
 
 The instruction cache is useful for speeding up loops because it will look in the cache and say: you need the instruction from memory, but I have it here you. So, there's no need to request it from memory. Intruction Cache address fields is compared to the program counter of the current process to see if its valid.  If not, there is a cache miss making it necessary to wait by setting cacheHit to low and set the instruction register to an instrution wait opcode. \\
 
@@ -75,25 +75,31 @@ One final issue was making the memory module compatible with the soon-to-be-impl
 
 After we solved these problems we got a working version of utilizing the memory. \\
 
-The first problem with cache was figuring out how to implement the direct mapping in order to make entries into it. 
-Another was what the actual insides of the cache needed top look like like where the instructions/data need to go and what else were included within a cache block.
+The first problem with cache was figuring out how to implement the direct mapping in order to make entries into it. Another was what the actual insides of the cache needed top look like like where the instructions/data need to go and what else were included within a cache block. \\
 
 As usual using Latex was a nightmare but we learned a lot by using it which I suppose is important.
 As it turns out, debugging a processor of this complexity is a frustrating process. It proved to be quite a humbling experience.
 
 \section*{Testing}
-The testing for this processor was done by checking to see if the instructions executed as intended. The first problem was discovering that the torf register was not being set as expected. This was caused by the stack pointer for the registers to go out of bounds of the register file bounds and would go to -1. This had to be fixed in one of the later stages of the pipeline. After that was remedied, it was on to fix the next bug in the long list of bugs encountered during testing. 
-The first few bugs caused the processor to loop forever without ever reaching a halt state. In order to fix this, a count variable was set in the testbench so that after 10000 clock ticks, the testbench would stop regardless if a halt state had been reached. This greatly sped up the debugging process and finding why the processor never reached a halted state. 
-The next problem encountered for this aspect was discovering that the aik specifications were improperly set up. The opcodes for Jump, JumpF, and JumpT were all mixed up. So, when testing was going on and the processor was not jumping as expected for an absolute jump, it was found that the processor was getting a JumpT instruction instead of the intended absolute Jump instruction.
+The testing for this processor was done by checking to see if the instructions executed as intended. The first problem was discovering that the torf register was not being set as expected. This was caused by the stack pointer for the registers to go out of bounds of the register file bounds and would go to -1. This had to be fixed in one of the later stages of the pipeline. After that was remedied, it was on to fix the next bug in the long list of bugs encountered during testing.\\
+
+The first few bugs caused the processor to loop forever without ever reaching a halt state. In order to fix this, a count variable was set in the testbench so that after 10000 clock ticks, the testbench would stop regardless if a halt state had been reached. This greatly sped up the debugging process and finding why the processor never reached a halted state. \\
+
+The next problem encountered for this aspect was discovering that the aik specifications were improperly set up. The opcodes for Jump, JumpF, and JumpT were all mixed up. So, when testing was going on and the processor was not jumping as expected for an absolute jump, it was found that the processor was getting a JumpT instruction instead of the intended absolute Jump instruction.\\
+
 Verifying the cache sped up the processor was surprisingly pain free. It was obvious that it greatly sped up the processor for instruction fetches.
 
 \section*{Included Files}
-\textbf {1) a5notes.pdf} The Implementor's Notes \\
-\textbf {2) sik.aik} Our Aik Encoding \\
-\textbf {3) procImp.v} Verilog for our pipelined, multithreaded implementation of Sik with a Cache System \\
-\textbf {4) Test_Program_description.txt} Contains the assembly instructions associated with each test program \\
-\textbf {5) storeProg.vmem} Contains the assembly opcodes showing the operation of loads and stores \\
-\textbf {6) testProg1.vmem} Contains the assembly opcodes the cache speeding up the processor \\
-\textbf {7) testProg2.vmem} Contains the assembly opcodes the cache speeding up the processor \\
-\textbf {8) testProg4.vmem} Contains the assembly opcodes the cache speeding up the processor \\
+\textbf {1)a5notes.pdf} The Implementor's Notes \\
+\textbf {2)sik.aik} Our Aik Encoding \\
+\textbf {3)ProcessorImplementation.v} Verilog for our pipelined, multithreaded implementation of Sik with a Cache System \\
+\textbf {4)Test\textunderscore Program\textunderscore Description.txt} Contains the assembly instructions associated with each test program \\
+\textbf {5)storeProg.vmem} Contains the assembly opcodes showing the operation of loads and stores \\
+\textbf {6)testProg1.vmem} Contains the assembly opcodes the cache speeding up the processor \\
+\textbf {7)testProg2.vmem} Contains the assembly opcodes the cache speeding up the processor \\
+\textbf {8)testProg4.vmem} Contains the assembly opcodes the cache speeding up the processor \\
+
 \end{document}
+
+
+
