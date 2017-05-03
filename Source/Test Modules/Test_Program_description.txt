@@ -1,7 +1,7 @@
 testProg1.vmem Assembly instructions:
 
 .origin 0x0000
-   Push 5
+   Push 2
 
 A: Test
    JumpT B
@@ -12,7 +12,7 @@ B: Push 1
    Jump A
 
 .origin 0x8000
-   Push 5
+   Push 1
 
 C: Test
    JumpT D
@@ -22,3 +22,22 @@ D: Push 1
    Sub
    Jump C
 
+@0000
+1002
+0002
+7004
+000b
+1001
+0001
+0004
+5001
+@8000
+b000
+1001
+0002
+7005
+000b
+b000
+1001
+0001
+5002
