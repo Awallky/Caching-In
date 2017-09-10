@@ -6,7 +6,7 @@ The implementation of this project involved three primary steps:
 Designing an encoding for the SIK instruction set
 Implementing a multi-cycle processor and slowed memory 
 Testing the design for coverage and proper functionality
-Implementing a variable-size cache with prefetch capabilities
+Implementing a variable-size cache with prefetch capabilities 
 
 BUGS:
 We had to get Dr. Dietz solution working.  we had to change his 'defines and turned some of them into registers in the modules
