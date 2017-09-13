@@ -1,5 +1,5 @@
 // basic sizes of things
-`define WORD	  [15:0]
+`define WORD	  [15:0] 
 `define BYTE	  [7:0]
 `define Opcode	  [15:12]
 `define Immed	  [11:0]
